@@ -105,8 +105,10 @@ function fpb_save_order_item_meta($item, $cart_item_key, $values, $order)
 /* ═══════════════════════════════════════════════════════════════
    On payment complete — save booking to DB and block date
 ═══════════════════════════════════════════════════════════════ */
-add_action('woocommerce_payment_complete', 'fpb_on_payment_complete', 10, 1);
-function fpb_on_payment_complete($order_id)
+add_action('woocommerce_payment_complete', 'fpb_on_paid_order', 10, 1);
+add_action('woocommerce_order_status_processing', 'fpb_on_paid_order', 10, 1);
+add_action('woocommerce_order_status_completed', 'fpb_on_paid_order', 10, 1);
+function fpb_on_paid_order($order_id)
 {
     $order = wc_get_order($order_id);
     if (! $order) return;

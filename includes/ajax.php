@@ -44,6 +44,34 @@ function fpb_ajax_get_dates()
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   PUBLIC — Get enabled WooCommerce payment gateways
+═══════════════════════════════════════════════════════════════ */
+add_action('wp_ajax_fpb_get_payment_gateways',        'fpb_ajax_get_payment_gateways');
+add_action('wp_ajax_nopriv_fpb_get_payment_gateways', 'fpb_ajax_get_payment_gateways');
+function fpb_ajax_get_payment_gateways()
+{
+    check_ajax_referer('fpb_nonce', 'nonce');
+
+    if (! class_exists('WooCommerce')) {
+        wp_send_json_success(['gateways' => []]);
+    }
+
+    $gateways = [];
+    $payment_gateways = WC()->payment_gateways();
+    if ($payment_gateways && method_exists($payment_gateways, 'get_available_payment_gateways')) {
+        foreach ($payment_gateways->get_available_payment_gateways() as $gateway) {
+            $gateways[] = [
+                'id'          => sanitize_key($gateway->id),
+                'title'       => wp_kses_post($gateway->get_title()),
+                'description' => wp_kses_post($gateway->get_description()),
+            ];
+        }
+    }
+
+    wp_send_json_success(['gateways' => $gateways]);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    PUBLIC — Add to WooCommerce cart + return checkout URL
 ═══════════════════════════════════════════════════════════════ */
 add_action('wp_ajax_fpb_add_to_cart',        'fpb_ajax_add_to_cart');

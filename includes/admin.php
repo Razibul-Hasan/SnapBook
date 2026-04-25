@@ -29,8 +29,7 @@ add_action('admin_enqueue_scripts', 'fpb_admin_assets');
 function fpb_admin_assets($hook)
 {
     if (strpos($hook, 'fpb-') === false) return;
-    wp_enqueue_style('fpb-admin-fonts', 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=Jost:wght@300;400;500;600&display=swap', [], FPB_VER);
-    wp_enqueue_style('fpb-admin-css',   FPB_URL . 'assets/css/admin.css', ['fpb-admin-fonts'], FPB_VER);
+    wp_enqueue_style('fpb-admin-css', FPB_URL . 'assets/css/admin.css', [], FPB_VER);
     wp_enqueue_script('fpb-admin-js',    FPB_URL . 'assets/js/admin.js',   [], FPB_VER, true);
     wp_localize_script('fpb-admin-js', 'fpbAdmin', [
         'ajaxUrl' => admin_url('admin-ajax.php'),
@@ -51,17 +50,17 @@ function fpb_wrap_open($title, $active_tab = '')
         'fpb-dates'    => '📅 Date Slots',
         'fpb-settings' => '⚙️ Settings',
     ];
-    echo '<div class="fpb-admin-wrap">';
-    echo '<div class="fpb-admin-header"><span class="fpb-admin-logo">FP Booking</span><span class="fpb-admin-ver">v' . esc_html(FPB_VER) . '</span></div>';
-    echo '<div class="fpb-admin-tabs">';
+    echo '<div class="wrap fpb-admin-wrap">';
+    echo '<h1 class="wp-heading-inline">' . esc_html($title) . '</h1>';
+    echo '<p class="description" style="margin:6px 0 14px;">FP Booking v' . esc_html(FPB_VER) . '</p>';
+    echo '<h2 class="nav-tab-wrapper wp-clearfix fpb-admin-tabs">';
     foreach ($tabs as $slug => $label) {
         $url    = admin_url('admin.php?page=' . $slug);
-        $active = ($slug === $active_tab) ? ' active' : '';
-        echo '<a href="' . esc_url($url) . '" class="fpb-tab' . esc_attr($active) . '">' . esc_html($label) . '</a>';
+        $active = ($slug === $active_tab) ? ' nav-tab-active active' : '';
+        echo '<a href="' . esc_url($url) . '" class="nav-tab fpb-tab' . esc_attr($active) . '">' . esc_html($label) . '</a>';
     }
-    echo '</div>';
+    echo '</h2>';
     echo '<div class="fpb-admin-body">';
-    echo '<h1 class="fpb-admin-title">' . esc_html($title) . '</h1>';
 }
 function fpb_wrap_close()
 {
@@ -83,18 +82,25 @@ function fpb_page_bookings()
     fpb_wrap_open('All Bookings', 'fpb-bookings');
     // Status filter
     $statuses = ['' => 'All', 'pending' => 'Pending', 'confirmed' => 'Confirmed', 'cancelled' => 'Cancelled'];
-    echo '<div class="fpb-filter-bar">';
+    echo '<ul class="subsubsub fpb-filter-bar">';
+    $i = 0;
+    $total_statuses = count($statuses);
     foreach ($statuses as $k => $v) {
         $url = admin_url('admin.php?page=fpb-bookings' . ($k ? '&status=' . $k : ''));
-        $cls = ($k === $status) ? ' active' : '';
-        echo '<a href="' . esc_url($url) . '" class="fpb-filter-btn' . esc_attr($cls) . '">' . esc_html($v) . '</a>';
+        $cls = ($k === $status) ? ' current active' : '';
+        echo '<li><a href="' . esc_url($url) . '" class="fpb-filter-btn' . esc_attr($cls) . '">' . esc_html($v) . '</a>';
+        if ($i < $total_statuses - 1) {
+            echo ' | ';
+        }
+        echo '</li>';
+        $i++;
     }
-    echo '</div>';
+    echo '</ul><br class="clear" />';
 
     if (empty($bookings)) {
-        echo '<div class="fpb-empty">No bookings found.</div>';
+        echo '<div class="notice notice-info inline"><p>No bookings found.</p></div>';
     } else {
-        echo '<div class="fpb-table-wrap"><table class="fpb-table"><thead><tr>';
+        echo '<div class="fpb-table-wrap"><table class="wp-list-table widefat fixed striped fpb-table"><thead><tr>';
         echo '<th>#</th><th>Client</th><th>Package</th><th>Date</th><th>Total</th><th>Deposit</th><th>Status</th><th>Order</th><th>Actions</th>';
         echo '</tr></thead><tbody>';
         foreach ($bookings as $b) {
@@ -109,7 +115,7 @@ function fpb_page_bookings()
             $order_link = $b->order_id ? '<a href="' . esc_url(admin_url('post.php?post=' . (int) $b->order_id . '&action=edit')) . '">#' . (int) $b->order_id . '</a>' : '—';
             echo '<td>' . wp_kses_post($order_link) . '</td>';
             echo '<td>';
-            echo '<button class="fpb-btn-sm fpb-btn-view" data-id="' . (int) $b->id . '">View</button> ';
+            echo '<button class="button button-secondary fpb-btn-sm fpb-btn-view" data-id="' . (int) $b->id . '">View</button> ';
             echo '<select class="fpb-status-select" data-id="' . (int) $b->id . '">';
             foreach (['pending', 'confirmed', 'cancelled'] as $st) {
                 echo '<option value="' . esc_attr($st) . '"' . selected($b->status, $st, false) . '>' . esc_html(ucfirst($st)) . '</option>';
@@ -144,7 +150,7 @@ function fpb_page_sessions()
     echo '<div class="fpb-two-col">';
 
     // ── Add / Edit form ─
-    echo '<div class="fpb-form-card">';
+    echo '<div class="postbox fpb-form-card"><div class="inside">';
     echo '<h3 class="fpb-form-title">' . ($edit_row ? 'Edit Session Type' : 'Add New Session Type') . '</h3>';
     echo '<form id="fpb-session-form">';
     wp_nonce_field('fpb_admin_nonce', 'fpb_nonce');
@@ -155,17 +161,17 @@ function fpb_page_sessions()
     echo '<div class="fpb-field"><label>Sort Order</label><input type="number" name="sort_order" value="' . esc_attr($edit_row->sort_order ?? 0) . '" min="0"></div>';
     echo '<div class="fpb-field"><label><input type="checkbox" name="active" value="1"' . (isset($edit_row->active) ? checked(1, $edit_row->active, false) : ' checked') . '> Active</label></div>';
     echo '<div class="fpb-form-actions">';
-    echo '<button type="submit" class="fpb-btn" id="fpb-session-save">' . ($edit_row ? 'Update' : 'Add Session Type') . '</button>';
-    if ($edit_row) echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-sessions')) . '" class="fpb-btn fpb-btn-ghost">Cancel</a>';
+    echo '<button type="submit" class="button button-primary fpb-btn" id="fpb-session-save">' . ($edit_row ? 'Update' : 'Add Session Type') . '</button>';
+    if ($edit_row) echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-sessions')) . '" class="button fpb-btn fpb-btn-ghost">Cancel</a>';
     echo '</div><div class="fpb-form-msg" id="fpb-session-msg"></div>';
-    echo '</form></div>';
+    echo '</form></div></div>';
 
     // ── List ─
-    echo '<div class="fpb-list-card">';
+    echo '<div class="postbox fpb-list-card"><div class="inside">';
     if (empty($sessions)) {
         echo '<div class="fpb-empty">No session types yet.</div>';
     } else {
-        echo '<table class="fpb-table"><thead><tr><th>Emoji</th><th>Name</th><th>Slug</th><th>Order</th><th>Active</th><th>Actions</th></tr></thead><tbody>';
+        echo '<table class="wp-list-table widefat fixed striped fpb-table"><thead><tr><th>Emoji</th><th>Name</th><th>Slug</th><th>Order</th><th>Active</th><th>Actions</th></tr></thead><tbody>';
         foreach ($sessions as $row) {
             echo '<tr>';
             echo '<td>' . esc_html($row->emoji) . '</td>';
@@ -174,13 +180,13 @@ function fpb_page_sessions()
             echo '<td>' . (int) $row->sort_order . '</td>';
             echo '<td>' . ($row->active ? '✅' : '❌') . '</td>';
             echo '<td>';
-            echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-sessions&edit=' . (int) $row->id)) . '" class="fpb-btn-sm">Edit</a> ';
-            echo '<button class="fpb-btn-sm fpb-btn-danger fpb-del-session" data-id="' . (int) $row->id . '" data-name="' . esc_attr($row->name) . '">Delete</button>';
+            echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-sessions&edit=' . (int) $row->id)) . '" class="button button-small fpb-btn-sm">Edit</a> ';
+            echo '<button class="button button-small button-link-delete fpb-btn-sm fpb-btn-danger fpb-del-session" data-id="' . (int) $row->id . '" data-name="' . esc_attr($row->name) . '">Delete</button>';
             echo '</td></tr>';
         }
         echo '</tbody></table>';
     }
-    echo '</div>';
+    echo '</div></div>';
     echo '</div>'; // fpb-two-col
     fpb_wrap_close();
 }
@@ -204,7 +210,7 @@ function fpb_page_packages()
     echo '<div class="fpb-two-col">';
 
     // ── Form ─
-    echo '<div class="fpb-form-card">';
+    echo '<div class="postbox fpb-form-card"><div class="inside">';
     echo '<h3 class="fpb-form-title">' . ($edit_row ? 'Edit Package' : 'Add New Package') . '</h3>';
     echo '<form id="fpb-package-form">';
     wp_nonce_field('fpb_admin_nonce', 'fpb_nonce');
@@ -223,23 +229,30 @@ function fpb_page_packages()
     echo '<div class="fpb-field fpb-field-half"><label><input type="checkbox" name="featured" value="1"' . (isset($edit_row->featured) ? checked(1, $edit_row->featured, false) : '') . '> Featured ⭐</label></div>';
     echo '<div class="fpb-field"><label><input type="checkbox" name="active" value="1"' . (isset($edit_row->active) ? checked(1, $edit_row->active, false) : ' checked') . '> Active</label></div>';
     echo '<div class="fpb-form-actions">';
-    echo '<button type="submit" class="fpb-btn">' . ($edit_row ? 'Update Package' : 'Add Package') . '</button>';
-    if ($edit_row) echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-packages')) . '" class="fpb-btn fpb-btn-ghost">Cancel</a>';
+    echo '<button type="submit" class="button button-primary fpb-btn">' . ($edit_row ? 'Update Package' : 'Add Package') . '</button>';
+    if ($edit_row) echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-packages')) . '" class="button fpb-btn fpb-btn-ghost">Cancel</a>';
     echo '</div><div class="fpb-form-msg" id="fpb-package-msg"></div>';
-    echo '</form></div>';
+    echo '</form></div></div>';
 
     // ── List with session filter ─
-    echo '<div class="fpb-list-card">';
-    echo '<div class="fpb-filter-bar" style="margin-bottom:1rem">';
-    echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-packages')) . '" class="fpb-filter-btn' . (! $filter ? ' active' : '') . '">All</a>';
+    echo '<div class="postbox fpb-list-card"><div class="inside">';
+    echo '<ul class="subsubsub fpb-filter-bar" style="margin-bottom:1rem">';
+    echo '<li><a href="' . esc_url(admin_url('admin.php?page=fpb-packages')) . '" class="fpb-filter-btn' . (! $filter ? ' current active' : '') . '">All</a> | </li>';
+    $session_count = count($sessions);
+    $session_idx = 0;
     foreach ($sessions as $s) {
-        echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-packages&session=' . (int) $s->id)) . '" class="fpb-filter-btn' . ($filter === (int) $s->id ? ' active' : '') . '">' . esc_html($s->emoji . ' ' . $s->name) . '</a>';
+        $session_idx++;
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=fpb-packages&session=' . (int) $s->id)) . '" class="fpb-filter-btn' . ($filter === (int) $s->id ? ' current active' : '') . '">' . esc_html($s->emoji . ' ' . $s->name) . '</a>';
+        if ($session_idx < $session_count) {
+            echo ' | ';
+        }
+        echo '</li>';
     }
-    echo '</div>';
+    echo '</ul><br class="clear" />';
     if (empty($packages)) {
         echo '<div class="fpb-empty">No packages yet.</div>';
     } else {
-        echo '<table class="fpb-table"><thead><tr><th>Session</th><th>Name</th><th>Price</th><th>Duration</th><th>Featured</th><th>Active</th><th>Actions</th></tr></thead><tbody>';
+        echo '<table class="wp-list-table widefat fixed striped fpb-table"><thead><tr><th>Session</th><th>Name</th><th>Price</th><th>Duration</th><th>Featured</th><th>Active</th><th>Actions</th></tr></thead><tbody>';
         foreach ($packages as $row) {
             echo '<tr>';
             echo '<td>' . esc_html($row->semoji . ' ' . $row->sname) . '</td>';
@@ -249,13 +262,13 @@ function fpb_page_packages()
             echo '<td>' . ($row->featured ? '⭐' : '—') . '</td>';
             echo '<td>' . ($row->active ? '✅' : '❌') . '</td>';
             echo '<td>';
-            echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-packages&edit=' . (int) $row->id)) . '" class="fpb-btn-sm">Edit</a> ';
-            echo '<button class="fpb-btn-sm fpb-btn-danger fpb-del-package" data-id="' . (int) $row->id . '" data-name="' . esc_attr($row->name) . '">Delete</button>';
+            echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-packages&edit=' . (int) $row->id)) . '" class="button button-small fpb-btn-sm">Edit</a> ';
+            echo '<button class="button button-small button-link-delete fpb-btn-sm fpb-btn-danger fpb-del-package" data-id="' . (int) $row->id . '" data-name="' . esc_attr($row->name) . '">Delete</button>';
             echo '</td></tr>';
         }
         echo '</tbody></table>';
     }
-    echo '</div>';
+    echo '</div></div>';
     echo '</div>';
     fpb_wrap_close();
 }
@@ -276,7 +289,7 @@ function fpb_page_addons()
     fpb_wrap_open('Add-ons', 'fpb-addons');
     echo '<div class="fpb-two-col">';
 
-    echo '<div class="fpb-form-card">';
+    echo '<div class="postbox fpb-form-card"><div class="inside">';
     echo '<h3 class="fpb-form-title">' . ($edit_row ? 'Edit Add-on' : 'Add New Add-on') . '</h3>';
     echo '<form id="fpb-addon-form">';
     wp_nonce_field('fpb_admin_nonce', 'fpb_nonce');
@@ -298,16 +311,16 @@ function fpb_page_addons()
     echo '<div class="fpb-field fpb-field-half"><label>Sort Order</label><input type="number" name="sort_order" value="' . esc_attr($edit_row->sort_order ?? 0) . '" min="0"></div>';
     echo '<div class="fpb-field fpb-field-half"><label><input type="checkbox" name="active" value="1"' . (isset($edit_row->active) ? checked(1, $edit_row->active, false) : ' checked') . '> Active</label></div>';
     echo '<div class="fpb-form-actions">';
-    echo '<button type="submit" class="fpb-btn">' . ($edit_row ? 'Update Add-on' : 'Add Add-on') . '</button>';
-    if ($edit_row) echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-addons')) . '" class="fpb-btn fpb-btn-ghost">Cancel</a>';
+    echo '<button type="submit" class="button button-primary fpb-btn">' . ($edit_row ? 'Update Add-on' : 'Add Add-on') . '</button>';
+    if ($edit_row) echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-addons')) . '" class="button fpb-btn fpb-btn-ghost">Cancel</a>';
     echo '</div><div class="fpb-form-msg" id="fpb-addon-msg"></div>';
-    echo '</form></div>';
+    echo '</form></div></div>';
 
-    echo '<div class="fpb-list-card">';
+    echo '<div class="postbox fpb-list-card"><div class="inside">';
     if (empty($addons)) {
         echo '<div class="fpb-empty">No add-ons yet.</div>';
     } else {
-        echo '<table class="fpb-table"><thead><tr><th>Emoji</th><th>Name</th><th>Price</th><th>Applies To</th><th>Active</th><th>Actions</th></tr></thead><tbody>';
+        echo '<table class="wp-list-table widefat fixed striped fpb-table"><thead><tr><th>Emoji</th><th>Name</th><th>Price</th><th>Applies To</th><th>Active</th><th>Actions</th></tr></thead><tbody>';
         foreach ($addons as $row) {
             $scope = (int) $row->package_id === 0 ? '<span class="fpb-badge fpb-badge-confirmed">All Packages</span>' : esc_html($row->pname ?? '—');
             echo '<tr>';
@@ -317,13 +330,13 @@ function fpb_page_addons()
             echo '<td>' . wp_kses_post($scope) . '</td>';
             echo '<td>' . ($row->active ? '✅' : '❌') . '</td>';
             echo '<td>';
-            echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-addons&edit=' . (int) $row->id)) . '" class="fpb-btn-sm">Edit</a> ';
-            echo '<button class="fpb-btn-sm fpb-btn-danger fpb-del-addon" data-id="' . (int) $row->id . '" data-name="' . esc_attr($row->name) . '">Delete</button>';
+            echo '<a href="' . esc_url(admin_url('admin.php?page=fpb-addons&edit=' . (int) $row->id)) . '" class="button button-small fpb-btn-sm">Edit</a> ';
+            echo '<button class="button button-small button-link-delete fpb-btn-sm fpb-btn-danger fpb-del-addon" data-id="' . (int) $row->id . '" data-name="' . esc_attr($row->name) . '">Delete</button>';
             echo '</td></tr>';
         }
         echo '</tbody></table>';
     }
-    echo '</div>';
+    echo '</div></div>';
     echo '</div>';
     fpb_wrap_close();
 }
@@ -338,9 +351,9 @@ function fpb_page_dates()
 ?>
     <p class="fpb-hint">Click any <strong>future date</strong> to toggle it between Available → Booked → Blocked.</p>
     <div class="fpb-dates-toolbar" id="fpb-dates-toolbar">
-        <button class="fpb-cal-admin-nav" id="fpb-prev-month">‹ Prev</button>
+        <button type="button" class="button fpb-cal-admin-nav" id="fpb-prev-month">‹ Prev</button>
         <span class="fpb-cal-admin-month" id="fpb-month-label">Loading…</span>
-        <button class="fpb-cal-admin-nav" id="fpb-next-month">Next ›</button>
+        <button type="button" class="button fpb-cal-admin-nav" id="fpb-next-month">Next ›</button>
     </div>
     <div class="fpb-dates-calendar">
         <div class="fpb-cal-admin-dh">
@@ -384,7 +397,7 @@ function fpb_page_settings()
         update_option('fpb_success_title',   sanitize_text_field(wp_unslash($_POST['fpb_success_title']   ?? '')));
         update_option('fpb_success_msg',     sanitize_textarea_field(wp_unslash($_POST['fpb_success_msg'] ?? '')));
         update_option('fpb_whatsapp_btn',    sanitize_text_field(wp_unslash($_POST['fpb_whatsapp_btn']    ?? '')));
-        echo '<div class="fpb-notice ok">✓ Settings saved.</div>';
+        echo '<div class="notice notice-success is-dismissible inline"><p>Settings saved.</p></div>';
     }
 
     // ── Read stored values ───────────────────────────────────────
@@ -436,20 +449,20 @@ function fpb_page_settings()
     wp_nonce_field('fpb_settings', 'fpb_settings_nonce');
 
     /* ── SECTION: Shortcode Reference ── */
-    echo '<div class="fpb-settings-section">';
+    echo '<div class="postbox fpb-settings-section"><div class="inside">';
     echo '<h2 class="fpb-section-title">🔗 Shortcode Reference</h2>';
     echo '<div class="fpb-shortcode-ref">';
     echo '<p>Paste this shortcode into any page or post to display the booking form:</p>';
     echo '<div class="fpb-shortcode-copy-wrap">';
     echo '<code class="fpb-shortcode-code" id="fpb-sc-code">[focus_booking]</code>';
-    echo '<button type="button" class="fpb-btn-sm" onclick="fpbCopyShortcode()">' . esc_html__('Copy', 'focus-photography-booking') . '</button>';
-    echo '</div>';
+    echo '<button type="button" class="button button-secondary fpb-btn-sm" onclick="fpbCopyShortcode()">' . esc_html__('Copy', 'focus-photography-booking') . '</button>';
+    echo '</div></div>';
     echo '<p class="fpb-field-note">The form renders a 4-step booking wizard with package selection, client details, contract signature, and payment.</p>';
     echo '</div>';
     echo '</div>';
 
     /* ── SECTION: General ── */
-    echo '<div class="fpb-settings-section">';
+    echo '<div class="postbox fpb-settings-section"><div class="inside">';
     echo '<h2 class="fpb-section-title">⚙️ General Settings</h2>';
     echo '<div class="fpb-form-card fpb-form-single">';
     echo '<div class="fpb-field"><label>' . esc_html__('WhatsApp Number', 'focus-photography-booking') . '</label>';
@@ -466,13 +479,13 @@ function fpb_page_settings()
         echo '<p class="fpb-field-note">Deposit product ID: <a href="' . esc_url(admin_url('post.php?post=' . $wc_pid . '&action=edit')) . '" target="_blank">#' . absint($wc_pid) . '</a> — do not delete this product.</p></div>';
     } elseif (class_exists('WooCommerce')) {
         echo '<div class="fpb-field"><label>' . esc_html__('WooCommerce Product', 'focus-photography-booking') . '</label>';
-        echo '<p class="fpb-field-note">No product set. <button type="button" onclick="fpbAdminCreateProduct()" class="fpb-btn-sm">Create Now</button></p></div>';
+        echo '<p class="fpb-field-note">No product set. <button type="button" onclick="fpbAdminCreateProduct()" class="button button-secondary fpb-btn-sm">Create Now</button></p></div>';
     }
-    echo '</div>';
+    echo '</div></div>';
     echo '</div>';
 
     /* ── SECTION: Shortcode — Step Indicator Labels ── */
-    echo '<div class="fpb-settings-section">';
+    echo '<div class="postbox fpb-settings-section"><div class="inside">';
     echo '<h2 class="fpb-section-title">🪧 Shortcode — Step Indicator Labels</h2>';
     echo '<p class="fpb-section-desc">Short labels shown in the progress bar above the booking form.</p>';
     echo '<div class="fpb-form-card fpb-form-single">';
@@ -482,12 +495,12 @@ function fpb_page_settings()
         echo '<div class="fpb-field fpb-field-quarter"><label>' . esc_html($label) . '</label>';
         echo '<input type="text" name="' . esc_attr($key) . '" value="' . esc_attr($val) . '" placeholder="' . esc_attr($default) . '"></div>';
     }
-    echo '</div>';
+    echo '</div></div>';
     echo '</div>';
     echo '</div>';
 
     /* ── SECTION: Shortcode — Step Titles & Subtitles ── */
-    echo '<div class="fpb-settings-section">';
+    echo '<div class="postbox fpb-settings-section"><div class="inside">';
     echo '<h2 class="fpb-section-title">✏️ Shortcode — Step Titles &amp; Subtitles</h2>';
     echo '<p class="fpb-section-desc">Heading and subtitle text displayed at the top of each booking step.</p>';
     foreach ($step_content as $step) {
@@ -501,14 +514,14 @@ function fpb_page_settings()
         echo '<input type="text" name="' . esc_attr($step['sub_key']) . '" value="' . esc_attr($sub) . '" placeholder="' . esc_attr($step['sub_def']) . '"></div>';
         echo '</div>';
     }
-    echo '</div>';
+    echo '</div></div>';
 
     /* ── SECTION: Shortcode — Success Screen ── */
     $success_title = get_option('fpb_success_title', 'Booking Requested!');
     $success_msg   = get_option('fpb_success_msg',   "We've received your request and will confirm availability within 24 hours. A confirmation will be sent to your email.");
     $wa_btn        = get_option('fpb_whatsapp_btn',  'Message us on WhatsApp');
 
-    echo '<div class="fpb-settings-section">';
+    echo '<div class="postbox fpb-settings-section"><div class="inside">';
     echo '<h2 class="fpb-section-title">🎉 Shortcode — Success Screen</h2>';
     echo '<p class="fpb-section-desc">Text shown after a booking is successfully submitted.</p>';
     echo '<div class="fpb-form-card fpb-form-single">';
@@ -519,11 +532,11 @@ function fpb_page_settings()
     echo '<p class="fpb-field-note">The client\'s email address is automatically appended at the end.</p></div>';
     echo '<div class="fpb-field"><label>' . esc_html__('WhatsApp Button Text', 'focus-photography-booking') . '</label>';
     echo '<input type="text" name="fpb_whatsapp_btn" value="' . esc_attr($wa_btn) . '" placeholder="Message us on WhatsApp"></div>';
-    echo '</div>';
+    echo '</div></div>';
     echo '</div>';
 
     echo '<div class="fpb-form-actions" style="padding:0 0 2rem">';
-    echo '<button type="submit" class="fpb-btn">💾 ' . esc_html__('Save All Settings', 'focus-photography-booking') . '</button>';
+    echo '<button type="submit" class="button button-primary fpb-btn">' . esc_html__('Save All Settings', 'focus-photography-booking') . '</button>';
     echo '</div>';
     echo '</form>';
 

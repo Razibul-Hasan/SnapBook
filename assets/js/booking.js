@@ -9,6 +9,7 @@
   let packages = [];
   let addons = [];
   let bookedDates = {}; // "YYYY-MM-DD" => "booked"|"blocked"
+  let paymentGateways = [];
 
   let activeSessionId = null;
   let selectedPkgId = null;
@@ -36,8 +37,16 @@
      Init
   ------------------------------------------------- */
   function init() {
-    Promise.all([post("fpb_get_data", {}), post("fpb_get_dates", {})])
-      .then(([dataRes, datesRes]) => {
+    const requests = [post("fpb_get_data", {}), post("fpb_get_dates", {})];
+    if (fpbData.hasWC) {
+      requests.push(post("fpb_get_payment_gateways", {}));
+    }
+
+    Promise.all(requests)
+      .then((responses) => {
+        const dataRes = responses[0];
+        const datesRes = responses[1];
+        const gatewaysRes = responses[2];
         if (dataRes.success) {
           sessions = dataRes.data.sessions || [];
           packages = dataRes.data.packages || [];
@@ -46,14 +55,19 @@
         if (datesRes.success) {
           bookedDates = datesRes.data || {};
         }
+        if (gatewaysRes && gatewaysRes.success) {
+          paymentGateways = gatewaysRes.data.gateways || [];
+        }
         renderSessionTabs();
         initCalendar();
+        renderPaymentGateways();
       })
       .catch(() => {
         const t = document.getElementById("fpb-typeTabs");
         if (t)
           t.innerHTML =
             '<p style="color:#c0392b;font-size:.85rem">Could not load booking data. Please refresh.</p>';
+        renderPaymentGateways(true);
       });
   }
 
@@ -488,6 +502,48 @@
     setTxt("fpb-pTot", cur + total.toFixed(2));
     setTxt("fpb-pDep", cur + deposit.toFixed(2));
     setTxt("fpb-pBal", cur + balance.toFixed(2));
+    renderPaymentGateways();
+  }
+
+  function renderPaymentGateways(loadFailed) {
+    const wrap = document.getElementById("fpb-gatewayList");
+    const box = document.getElementById("fpb-gatewayBox");
+    if (!wrap || !box) return;
+
+    if (!fpbData.hasWC) {
+      box.style.display = "none";
+      return;
+    }
+
+    box.style.display = "";
+
+    if (loadFailed) {
+      wrap.innerHTML =
+        '<p class="fpb-gateway-loading">Could not load payment methods. WooCommerce checkout will still show the enabled gateways.</p>';
+      return;
+    }
+
+    if (!paymentGateways.length) {
+      wrap.innerHTML =
+        '<p class="fpb-gateway-loading">Your WooCommerce checkout page will show the enabled payment gateways.</p>';
+      return;
+    }
+
+    wrap.innerHTML = paymentGateways
+      .map((gateway) => {
+        const description = gateway.description
+          ? '<div class="fpb-gateway-desc">' + gateway.description + "</div>"
+          : "";
+        return (
+          '<div class="fpb-gateway-item">' +
+          '<div class="fpb-gateway-name">' +
+          gateway.title +
+          "</div>" +
+          description +
+          "</div>"
+        );
+      })
+      .join("");
   }
 
   /* -------------------------------------------------
@@ -546,7 +602,7 @@
             window.location.href = r.data.checkout_url;
           } else {
             btn.disabled = false;
-            btn.textContent = "Proceed to Checkout";
+            btn.textContent = "Proceed to Payment";
             msg.textContent =
               r.data && r.data.message
                 ? r.data.message
@@ -556,7 +612,7 @@
         })
         .catch(() => {
           btn.disabled = false;
-          btn.textContent = "Proceed to Checkout";
+          btn.textContent = "Proceed to Payment";
           msg.textContent =
             "Network error. Check your connection and try again.";
           msg.className = "fpb-checkout-msg err";

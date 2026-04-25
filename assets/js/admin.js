@@ -46,8 +46,8 @@
     btn.addEventListener("click", () => {
       document
         .querySelectorAll(".fpb-filter-btn")
-        .forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
+        .forEach((b) => b.classList.remove("active", "current"));
+      btn.classList.add("active", "current");
       const filter = btn.dataset.filter;
       document.querySelectorAll(".fpb-brow").forEach((row) => {
         if (filter === "all" || row.dataset.status === filter) {

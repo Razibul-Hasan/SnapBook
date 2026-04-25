@@ -426,10 +426,17 @@ function fpb_render_shortcode()
 
                     <p class="fpb-sec-note">🔒 Secure checkout powered by WooCommerce — Stripe, PayPal and more accepted.</p>
 
+                        <div class="fpb-gateway-box" id="fpb-gatewayBox">
+                            <div class="fpb-gateway-title">Available payment methods</div>
+                            <div class="fpb-gateway-list" id="fpb-gatewayList">
+                                <p class="fpb-gateway-loading">Loading payment methods…</p>
+                            </div>
+                        </div>
+
                     <div class="fnav">
                         <button class="btn bo" onclick="fpb.bkGo(3)">← Back</button>
                         <button class="btn bg fpb-checkout-btn" id="fpb-checkoutBtn" onclick="fpb.proceedToCheckout()">
-                            Proceed to Checkout →
+                                Proceed to Payment →
                         </button>
                     </div>
                     <p id="fpb-checkoutMsg" class="fpb-checkout-msg"></p>

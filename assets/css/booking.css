@@ -580,6 +580,53 @@
   }
 }
 
+.fpb-wrap .fpb-gateway-box {
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  background: var(--fpb-w);
+  border: 1px solid var(--fpb-border);
+  border-radius: 6px;
+  box-shadow: var(--fpb-sh);
+}
+
+.fpb-wrap .fpb-gateway-title {
+  font-family: var(--fpb-serif);
+  font-size: 1rem;
+  color: var(--fpb-text);
+  margin-bottom: 0.8rem;
+}
+
+.fpb-wrap .fpb-gateway-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.fpb-wrap .fpb-gateway-item {
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--fpb-border);
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 241, 237, 0.9));
+}
+
+.fpb-wrap .fpb-gateway-name {
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--fpb-text);
+}
+
+.fpb-wrap .fpb-gateway-desc {
+  margin-top: 0.28rem;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--fpb-sub);
+}
+
+.fpb-wrap .fpb-gateway-loading {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--fpb-muted);
+}
+
 .fpb-wrap .fsub {
   font-size: 0.78rem;
   color: var(--fpb-muted);
