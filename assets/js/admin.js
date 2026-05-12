@@ -1,465 +1,370 @@
-﻿/* global fpbAdmin */
+/* global fpbAdmin, sbAdmin, fpbBookings, sbBookings */
 (function () {
   "use strict";
 
-  const ajax = fpbAdmin.ajaxUrl;
-  const nonce = fpbAdmin.nonce;
-  const sessions = fpbAdmin.sessions || []; // seeded by PHP wp_localize_script
+  const adminData = window.fpbAdmin || window.sbAdmin || {};
+  const ajaxUrl = adminData.ajaxUrl || "";
+  const nonce = adminData.nonce || "";
 
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-     Helpers
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   function post(action, data) {
     const fd = new FormData();
     fd.append("action", action);
     fd.append("nonce", nonce);
-    Object.entries(data).forEach(([k, v]) => fd.append(k, v));
-    return fetch(ajax, { method: "POST", body: fd }).then((r) => {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.text().then((text) => {
+    Object.entries(data || {}).forEach(([k, v]) => fd.append(k, v));
+
+    return fetch(ajaxUrl, { method: "POST", body: fd })
+      .then((r) => {
+        if (!r.ok) {
+          throw new Error("HTTP " + r.status);
+        }
+        return r.text();
+      })
+      .then((text) => {
         try {
           return JSON.parse(text);
-        } catch {
-          throw new Error(
-            "Invalid response from server. Check for PHP errors.",
-          );
+        } catch (_e) {
+          throw new Error("Invalid JSON response");
         }
       });
-    });
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   function setMsg(id, text, ok) {
     const el = document.getElementById(id);
     if (!el) return;
-    el.textContent = text;
+    el.textContent = text || "";
     el.className = "fpb-form-msg " + (ok ? "ok" : "err");
   }
 
-  function confirmDel(label) {
-    return window.confirm('Delete "' + label + '"? This cannot be undone.');
+  function formToObject(form) {
+    const fd = new FormData(form);
+    const data = {};
+    fd.forEach((value, key) => {
+      data[key] = value;
+    });
+    return data;
   }
 
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-     Filter buttons (Bookings page)
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  document.querySelectorAll(".fpb-filter-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document
-        .querySelectorAll(".fpb-filter-btn")
-        .forEach((b) => b.classList.remove("active", "current"));
-      btn.classList.add("active", "current");
-      const filter = btn.dataset.filter;
-      document.querySelectorAll(".fpb-brow").forEach((row) => {
-        if (filter === "all" || row.dataset.status === filter) {
-          row.style.display = "";
-        } else {
-          row.style.display = "none";
-        }
-      });
-    });
-  });
+  function bindCrudForm(formId, saveAction, msgId, checkboxNames) {
+    const form = document.getElementById(formId);
+    if (!form) return;
 
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-     Booking: status select change
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  document.querySelectorAll(".fpb-status-select").forEach((sel) => {
-    sel.addEventListener("change", function () {
-      const id = this.dataset.id;
-      const val = this.value;
-      post("fpb_admin_update_booking_status", { id, status: val }).then((r) => {
-        if (r.success) {
-          const badge = this.closest("tr").querySelector(".fpb-badge");
-          if (badge) {
-            badge.className = "fpb-badge fpb-badge-" + val;
-            badge.textContent = val.charAt(0).toUpperCase() + val.slice(1);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const data = formToObject(form);
+
+      (checkboxNames || []).forEach((name) => {
+        const cb = form.querySelector('[name="' + name + '"]');
+        data[name] = cb && cb.checked ? "1" : "0";
+      });
+
+      post(saveAction, data)
+        .then((res) => {
+          if (!res.success) {
+            setMsg(
+              msgId,
+              (res.data && res.data.message) || "Save failed.",
+              false,
+            );
+            return;
           }
-        } else {
-          alert("Could not update status. Please try again.");
+          setMsg(msgId, "Saved.", true);
+          window.location.reload();
+        })
+        .catch(() => {
+          setMsg(msgId, "Network or server error. Please try again.", false);
+        });
+    });
+  }
+
+  function bindDeleteButtons(selector, action) {
+    document.querySelectorAll(selector).forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.id || "0";
+        const name = btn.dataset.name || "item";
+        if (!window.confirm('Delete "' + name + '"? This cannot be undone.')) {
+          return;
         }
+
+        post(action, { id })
+          .then((res) => {
+            if (!res.success) {
+              window.alert(
+                (res.data && res.data.message) || "Could not delete.",
+              );
+              return;
+            }
+            const row = btn.closest("tr");
+            if (row) row.remove();
+          })
+          .catch(() => {
+            window.alert("Network error. Could not delete.");
+          });
       });
     });
-  });
+  }
 
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-     Booking modal
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  const bookingModal = document.getElementById("fpb-booking-modal");
-  const bookingData = typeof fpbBookings !== "undefined" ? fpbBookings : [];
-  if (bookingModal) {
+  function bindBookingStatusUpdate() {
+    document
+      .querySelectorAll(".fpb-status-select, .sb-status-select")
+      .forEach((sel) => {
+        sel.addEventListener("change", function () {
+          const id = this.dataset.id;
+          const status = this.value;
+
+          post("fpb_admin_update_booking_status", { id, status })
+            .then((res) => {
+              if (!res.success) {
+                window.alert("Could not update status.");
+                return;
+              }
+              const badge =
+                this.closest("tr")?.querySelector(".fpb-badge") ||
+                this.closest("tr")?.querySelector(".sb-badge");
+              if (badge) {
+                const base =
+                  badge.className.indexOf("sb-badge") !== -1
+                    ? "sb-badge"
+                    : "fpb-badge";
+                badge.className = base + " " + base + "-" + status;
+                badge.textContent =
+                  status.charAt(0).toUpperCase() + status.slice(1);
+              }
+            })
+            .catch(() => {
+              window.alert("Network error. Could not update status.");
+            });
+        });
+      });
+  }
+
+  function bindBookingModal() {
+    const modal =
+      document.getElementById("fpb-booking-modal") ||
+      document.getElementById("sb-booking-modal");
+    if (!modal) return;
+
+    const sourceBookings = window.fpbBookings || window.sbBookings;
+    const data = Array.isArray(sourceBookings) ? sourceBookings : [];
+    const modalTitle = modal.querySelector(".fpb-modal-head span");
+    const modalBody = modal.querySelector(".fpb-modal-body");
+    const closeBtn = modal.querySelector(".fpb-modal-close");
+
+    function closeModal() {
+      modal.style.display = "none";
+    }
+
+    closeBtn?.addEventListener("click", closeModal);
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) closeModal();
+    });
+
     document.querySelectorAll(".fpb-btn-view").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.id;
-        const data = bookingData.find((b) => String(b.id) === String(id));
-        if (!data) return;
+        const b = data.find((x) => String(x.id) === String(id));
+        if (!b || !modalTitle || !modalBody) return;
 
-        const cur = data.currency || fpbAdmin.currency || "\u20ac";
         const rows = [
-          ["Client", data.client_name],
-          ["Email", data.client_email],
-          ["Phone", data.client_phone],
-          ["Country", data.client_country],
-          ["Session", data.session_type],
-          ["Package", data.package_name],
-          ["Add-ons", data.addons_json || "\u2014"],
-          ["Date", data.session_date || "\u2014"],
-          ["Time", data.session_time || "\u2014"],
-          ["Location", data.location_pref || "\u2014"],
-          ["Total", cur + parseFloat(data.total || 0).toFixed(2)],
-          ["Deposit", cur + parseFloat(data.deposit || 0).toFixed(2)],
-          ["Status", data.status],
-          ["WC Order", data.order_id ? "#" + data.order_id : "\u2014"],
-          ["Notes", data.notes || "\u2014"],
-          ["Signed by", data.signer_name || "\u2014"],
+          ["Client", b.client_name],
+          ["Email", b.client_email],
+          ["Phone", b.client_phone],
+          ["Country", b.client_country],
+          ["Session", b.session_type],
+          ["Package", b.package_name],
+          ["Add-ons", b.addons_json || "-"],
+          ["Date", b.session_date || "-"],
+          ["Time", b.session_time || "-"],
+          ["Location", b.location_pref || "-"],
+          ["Total", b.total || "0"],
+          ["Deposit", b.deposit || "0"],
+          ["Status", b.status || "pending"],
+          ["WC Order", b.order_id ? "#" + b.order_id : "-"],
+          ["Notes", b.notes || "-"],
+          ["Signed by", b.signer_name || "-"],
         ];
 
-        const html = rows
+        modalBody.innerHTML = rows
           .map(
             ([k, v]) =>
               '<div class="fpb-modal-row"><span class="fpb-modal-label">' +
-              k +
-              "</span>" +
-              '<span class="fpb-modal-val">' +
-              String(v || "\u2014").replace(/</g, "&lt;") +
+              escHtml(k) +
+              '</span><span class="fpb-modal-val">' +
+              escHtml(String(v)) +
               "</span></div>",
           )
           .join("");
 
-        const modalHead = bookingModal.querySelector(".fpb-modal-head span");
-        const modalBody = bookingModal.querySelector(".fpb-modal-body");
-        if (modalHead) modalHead.textContent = "Booking #" + id;
-        if (modalBody) modalBody.innerHTML = html;
-        bookingModal.style.display = "flex";
-      });
-    });
-
-    bookingModal
-      .querySelector(".fpb-modal-close")
-      .addEventListener("click", () => {
-        bookingModal.style.display = "none";
-      });
-    bookingModal.addEventListener("click", (e) => {
-      if (e.target === bookingModal) bookingModal.style.display = "none";
-    });
-  }
-
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-     Sessions CRUD
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  const sessionForm = document.getElementById("fpb-session-form");
-  if (sessionForm) {
-    sessionForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const fd = new FormData(sessionForm);
-      const data = Object.fromEntries(fd.entries());
-      data.active = sessionForm.querySelector("[name=active]").checked
-        ? "1"
-        : "0";
-      post("fpb_admin_save_session", data)
-        .then((r) => {
-          if (r.success) {
-            const savedSlug = r.data?.slug;
-            const sentSlug = data.slug;
-            const msg =
-              savedSlug && savedSlug !== sentSlug
-                ? "Saved! (Slug auto-changed to \u201c" +
-                  savedSlug +
-                  "\u201d to avoid conflict)"
-                : "Saved!";
-            setMsg("fpb-session-msg", msg, true);
-            setTimeout(() => location.reload(), 1200);
-          } else {
-            setMsg(
-              "fpb-session-msg",
-              r.data?.message || "Error saving.",
-              false,
-            );
-          }
-        })
-        .catch((err) => {
-          setMsg(
-            "fpb-session-msg",
-            err.message || "Network error. Please try again.",
-            false,
-          );
-        });
-    });
-
-    document.querySelectorAll(".fpb-edit-session").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const d = btn.dataset;
-        sessionForm.querySelector("[name=id]").value = d.id;
-        sessionForm.querySelector("[name=name]").value = d.name;
-        sessionForm.querySelector("[name=emoji]").value = d.emoji;
-        sessionForm.querySelector("[name=slug]").value = d.slug;
-        sessionForm.querySelector("[name=sort_order]").value = d.sort || "0";
-        sessionForm.querySelector("[name=active]").checked = d.active === "1";
-        sessionForm.querySelector("[name=name]").focus();
-        setMsg("fpb-session-msg", "", true);
-      });
-    });
-
-    document.querySelectorAll(".fpb-del-session").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (!confirmDel(btn.dataset.name)) return;
-        post("fpb_admin_delete_session", { id: btn.dataset.id })
-          .then((r) => {
-            if (r.success) btn.closest("tr").remove();
-            else
-              alert(
-                r.data?.message ||
-                  "Error deleting. Session may have linked packages.",
-              );
-          })
-          .catch(() => alert("Network error. Could not delete."));
+        modalTitle.textContent = "Booking #" + id;
+        modal.style.display = "flex";
       });
     });
   }
 
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-     Packages CRUD
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  const packageForm = document.getElementById("fpb-package-form");
-  if (packageForm) {
-    packageForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const fd = new FormData(packageForm);
-      const data = Object.fromEntries(fd.entries());
-      data.featured = packageForm.querySelector("[name=featured]").checked
-        ? "1"
-        : "0";
-      data.active = packageForm.querySelector("[name=active]").checked
-        ? "1"
-        : "0";
-      post("fpb_admin_save_package", data)
-        .then((r) => {
-          if (r.success) {
-            setMsg("fpb-package-msg", "Saved!", true);
-            setTimeout(() => location.reload(), 800);
-          } else {
-            setMsg(
-              "fpb-package-msg",
-              r.data?.message || "Error saving.",
-              false,
-            );
-          }
-        })
-        .catch((err) => {
-          setMsg(
-            "fpb-package-msg",
-            err.message || "Network error. Please try again.",
-            false,
-          );
-        });
+  function bindSessionSlugHelper() {
+    const nameInput = document.getElementById("fpb-session-name");
+    const slugInput = document.getElementById("fpb-session-slug");
+    if (!nameInput || !slugInput) return;
+
+    let manualSlug = Boolean(slugInput.value && slugInput.value.trim());
+
+    slugInput.addEventListener("input", () => {
+      manualSlug = true;
     });
 
-    document.querySelectorAll(".fpb-edit-package").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const d = btn.dataset;
-        packageForm.querySelector("[name=id]").value = d.id;
-        packageForm.querySelector("[name=session_id]").value = d.session;
-        packageForm.querySelector("[name=name]").value = d.name;
-        packageForm.querySelector("[name=price]").value = d.price;
-        packageForm.querySelector("[name=duration]").value = d.duration;
-        packageForm.querySelector("[name=description]").value = d.desc;
-        packageForm.querySelector("[name=sort_order]").value = d.sort || "0";
-        packageForm.querySelector("[name=featured]").checked =
-          d.featured === "1";
-        packageForm.querySelector("[name=active]").checked = d.active === "1";
-        packageForm.querySelector("[name=name]").focus();
-        setMsg("fpb-package-msg", "", true);
-      });
-    });
-
-    document.querySelectorAll(".fpb-del-package").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (!confirmDel(btn.dataset.name)) return;
-        post("fpb_admin_delete_package", { id: btn.dataset.id })
-          .then((r) => {
-            if (r.success) btn.closest("tr").remove();
-            else alert(r.data?.message || "Error deleting.");
-          })
-          .catch(() => alert("Network error. Could not delete."));
-      });
+    nameInput.addEventListener("input", () => {
+      if (manualSlug) return;
+      slugInput.value = String(nameInput.value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
     });
   }
 
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-     Add-ons CRUD
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  const addonForm = document.getElementById("fpb-addon-form");
-  if (addonForm) {
-    addonForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const fd = new FormData(addonForm);
-      const data = Object.fromEntries(fd.entries());
-      data.active = addonForm.querySelector("[name=active]").checked
-        ? "1"
-        : "0";
-      post("fpb_admin_save_addon", data)
-        .then((r) => {
-          if (r.success) {
-            setMsg("fpb-addon-msg", "Saved!", true);
-            setTimeout(() => location.reload(), 800);
-          } else {
-            setMsg("fpb-addon-msg", r.data?.message || "Error saving.", false);
-          }
-        })
-        .catch((err) => {
-          setMsg(
-            "fpb-addon-msg",
-            err.message || "Network error. Please try again.",
-            false,
-          );
-        });
-    });
+  function bindDateSlotsCalendar() {
+    const grid = document.getElementById("fpb-admin-calGrid");
+    const label = document.getElementById("fpb-month-label");
+    const prevBtn = document.getElementById("fpb-prev-month");
+    const nextBtn = document.getElementById("fpb-next-month");
+    const msg = document.getElementById("fpb-dates-msg");
 
-    document.querySelectorAll(".fpb-edit-addon").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const d = btn.dataset;
-        addonForm.querySelector("[name=id]").value = d.id;
-        addonForm.querySelector("[name=name]").value = d.name;
-        addonForm.querySelector("[name=price]").value = d.price;
-        addonForm.querySelector("[name=emoji]").value = d.emoji;
-        addonForm.querySelector("[name=description]").value = d.desc;
-        addonForm.querySelector("[name=sort_order]").value = d.sort || "0";
-        addonForm.querySelector("[name=active]").checked = d.active === "1";
-        addonForm.querySelector("[name=name]").focus();
-        setMsg("fpb-addon-msg", "", true);
-      });
-    });
+    if (!grid || !label || !prevBtn || !nextBtn) return;
 
-    document.querySelectorAll(".fpb-del-addon").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (!confirmDel(btn.dataset.name)) return;
-        post("fpb_admin_delete_addon", { id: btn.dataset.id })
-          .then((r) => {
-            if (r.success) btn.closest("tr").remove();
-            else alert(r.data?.message || "Error deleting.");
-          })
-          .catch(() => alert("Network error. Could not delete."));
-      });
-    });
-  }
+    let dateMap = {};
+    const view = new Date();
+    view.setDate(1);
 
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-     Date Slots â€” interactive admin calendar
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  const calGrid = document.getElementById("fpb-admin-calGrid");
-  if (calGrid) {
-    const monthLabel = document.getElementById("fpb-month-label");
-    const now = new Date();
-    let curYear = now.getFullYear();
-    let curMonth = now.getMonth() + 1;
-    let dateMap = {}; // "YYYY-MM-DD" â†’ "booked"|"blocked"
-
-    function loadDates() {
-      post("fpb_admin_get_dates", {}).then((r) => {
-        if (r.success) {
-          dateMap = r.data;
-          renderCal();
-        }
-      });
+    function toDateStr(y, m, d) {
+      return (
+        y + "-" + String(m).padStart(2, "0") + "-" + String(d).padStart(2, "0")
+      );
     }
 
-    function renderCal() {
-      const d = new Date(curYear, curMonth - 1, 1);
-      const days = new Date(curYear, curMonth, 0).getDate();
-      const startDow = d.getDay(); // 0=Sun
+    function renderCalendar() {
+      const year = view.getFullYear();
+      const month = view.getMonth();
+      const days = new Date(year, month + 1, 0).getDate();
+      const startDow = new Date(year, month, 1).getDay();
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const months = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-      ];
-      monthLabel.textContent = months[curMonth - 1] + " " + curYear;
+      label.textContent = view.toLocaleDateString(undefined, {
+        month: "long",
+        year: "numeric",
+      });
 
       let html = "";
-      for (let i = 0; i < startDow; i++)
+      for (let i = 0; i < startDow; i++) {
         html += '<div class="fpb-cal-admin-day empty"></div>';
-
-      for (let day = 1; day <= days; day++) {
-        const ds =
-          curYear +
-          "-" +
-          String(curMonth).padStart(2, "0") +
-          "-" +
-          String(day).padStart(2, "0");
-        const dt = new Date(curYear, curMonth - 1, day);
-        const past = dt < today;
-        const st = dateMap[ds] || "available";
-        let cls = "fpb-cal-admin-day " + st;
-        if (past) cls += " past";
-        html +=
-          '<div class="' + cls + '" data-date="' + ds + '">' + day + "</div>";
       }
-      calGrid.innerHTML = html;
 
-      calGrid
-        .querySelectorAll(".fpb-cal-admin-day:not(.empty):not(.past)")
-        .forEach((cell) => {
-          cell.addEventListener("click", () => toggleDate(cell));
+      for (let d = 1; d <= days; d++) {
+        const ds = toDateStr(year, month + 1, d);
+        const dt = new Date(year, month, d);
+        const isPast = dt < today;
+        const status = dateMap[ds] || "available";
+
+        let cls = "fpb-cal-admin-day " + status;
+        if (isPast) cls += " past";
+        if (dt.getTime() === today.getTime()) cls += " today";
+
+        html +=
+          '<div class="' + cls + '" data-date="' + ds + '">' + d + "</div>";
+      }
+
+      grid.innerHTML = html;
+
+      grid.querySelectorAll(".fpb-cal-admin-day").forEach((cell) => {
+        if (cell.classList.contains("empty") || cell.classList.contains("past"))
+          return;
+
+        cell.addEventListener("click", () => {
+          const ds = cell.dataset.date;
+          if (!ds) return;
+
+          post("fpb_admin_toggle_date", { date: ds })
+            .then((res) => {
+              if (!res.success) {
+                if (msg)
+                  msg.textContent =
+                    (res.data && res.data.message) || "Could not update date.";
+                return;
+              }
+
+              if (res.data.status === "available") {
+                delete dateMap[ds];
+              } else {
+                dateMap[ds] = res.data.status;
+              }
+
+              if (msg) msg.textContent = ds + " -> " + res.data.status;
+              renderCalendar();
+            })
+            .catch(() => {
+              if (msg) msg.textContent = "Network error. Please try again.";
+            });
         });
-    }
-
-    function toggleDate(cell) {
-      const date = cell.dataset.date;
-      post("fpb_admin_toggle_date", { date }).then((r) => {
-        if (r.success) {
-          const st = r.data.status;
-          dateMap[date] = st === "available" ? undefined : st;
-          if (st === "available") delete dateMap[date];
-          cell.className = "fpb-cal-admin-day " + st;
-        }
       });
     }
 
-    document.getElementById("fpb-prev-month").addEventListener("click", () => {
-      curMonth--;
-      if (curMonth < 1) {
-        curMonth = 12;
-        curYear--;
-      }
-      renderCal();
-    });
-    document.getElementById("fpb-next-month").addEventListener("click", () => {
-      curMonth++;
-      if (curMonth > 12) {
-        curMonth = 1;
-        curYear++;
-      }
-      renderCal();
+    prevBtn.addEventListener("click", () => {
+      view.setMonth(view.getMonth() - 1);
+      renderCalendar();
     });
 
-    loadDates();
+    nextBtn.addEventListener("click", () => {
+      view.setMonth(view.getMonth() + 1);
+      renderCalendar();
+    });
+
+    post("fpb_admin_get_dates", {})
+      .then((res) => {
+        if (res.success) {
+          dateMap = res.data || {};
+        } else if (msg) {
+          msg.textContent =
+            (res.data && res.data.message) || "Could not load dates.";
+        }
+        renderCalendar();
+      })
+      .catch(() => {
+        if (msg) msg.textContent = "Could not load dates.";
+        renderCalendar();
+      });
   }
 
-  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-     Settings: auto-slug from name (Session Types)
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  const nameInput = document.getElementById("fpb-session-name");
-  const slugInput = document.getElementById("fpb-session-slug");
-  if (nameInput && slugInput) {
-    nameInput.addEventListener("input", () => {
-      if (!slugInput.dataset.manual) {
-        slugInput.value = nameInput.value
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "");
-      }
-    });
-    slugInput.addEventListener("input", () => {
-      slugInput.dataset.manual = "1";
-    });
-  }
+  window.fpbAdminCreateProduct = function () {
+    window.alert("WooCommerce product auto-create is not configured yet.");
+  };
+
+  bindBookingStatusUpdate();
+  bindBookingModal();
+  bindSessionSlugHelper();
+  bindCrudForm(
+    "fpb-session-form",
+    "fpb_admin_save_session",
+    "fpb-session-msg",
+    ["active"],
+  );
+  bindCrudForm(
+    "fpb-package-form",
+    "fpb_admin_save_package",
+    "fpb-package-msg",
+    ["featured", "active"],
+  );
+  bindCrudForm("fpb-addon-form", "fpb_admin_save_addon", "fpb-addon-msg", [
+    "active",
+  ]);
+  bindDeleteButtons(".fpb-del-session", "fpb_admin_delete_session");
+  bindDeleteButtons(".fpb-del-package", "fpb_admin_delete_package");
+  bindDeleteButtons(".fpb-del-addon", "fpb_admin_delete_addon");
+  bindDateSlotsCalendar();
 })();

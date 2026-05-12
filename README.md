@@ -1,4 +1,4 @@
-# Focus Photography Booking
+# SnapBook
 
 > Multi-step photography booking plugin for WordPress with WooCommerce deposit checkout.
 
@@ -12,7 +12,7 @@
 
 ## Features
 
-- **Multi-step booking form** — rendered via shortcode `[focus_booking]`
+- **Multi-step booking form** — rendered via shortcode `[snapbook]`
 - **Session types, packages & add-ons** — fully manageable from the admin dashboard
 - **Date slot calendar** — toggle dates between Available / Booked / Blocked
 - **WooCommerce integration** — collect a configurable deposit at checkout
@@ -36,15 +36,15 @@
 
 1. Clone or download this repository into your plugins directory:
    ```bash
-   git clone https://github.com/your-username/focus-photography-booking.git \
-     wp-content/plugins/focus-photography-booking
+    git clone https://github.com/your-username/snapbook.git \
+       wp-content/plugins/snapbook
    ```
 2. Activate the plugin from the **WordPress Admin → Plugins** screen.
 3. Go to **FP Booking → Settings** and configure:
    - WhatsApp number
    - Deposit percentage
    - Currency
-4. Add `[focus_booking]` to any page or post.
+4. Add `[snapbook]` to any page or post.
 
 ---
 
@@ -53,7 +53,7 @@
 ### Shortcode
 
 ```
-[focus_booking]
+[snapbook]
 ```
 
 Place this shortcode on any page to display the multi-step booking form.
@@ -74,8 +74,8 @@ Place this shortcode on any page to display the multi-step booking form.
 ## Project Structure
 
 ```
-focus-photography-booking/
-├── focus-photography-booking.php   # Plugin bootstrap & hooks
+snapbook/
+├── snapbook.php                    # Plugin bootstrap & hooks
 ├── readme.txt                      # WordPress.org readme
 ├── assets/
 │   ├── css/
@@ -88,7 +88,7 @@ focus-photography-booking/
     ├── install.php                 # Activation / deactivation hooks & DB setup
     ├── admin.php                   # Admin menus, pages, and CRUD
     ├── ajax.php                    # AJAX handlers
-    ├── shortcode.php               # [focus_booking] shortcode & asset registration
+    ├── shortcode.php               # [snapbook] shortcode & asset registration
     └── woocommerce.php             # WooCommerce deposit integration
 ```
 

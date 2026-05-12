@@ -1,5 +1,5 @@
-=== Focus Photography Booking ===
-Contributors: focusphotography
+=== SnapBook ===
+Contributors: snapbook
 Tags: booking, photography, woocommerce, appointment, calendar
 Requires at least: 6.0
 Tested up to: 6.9
@@ -12,11 +12,12 @@ Multi-step photography booking with backend management and WooCommerce checkout.
 
 == Description ==
 
-Focus Photography Booking is a complete booking solution for photography studios. It provides a multi-step booking form, session type and package management, add-on services, a date availability calendar, and optional WooCommerce deposit checkout.
+SnapBook is a complete booking solution for photography studios. It provides a multi-step booking form, session type and package management, add-on services, a date availability calendar, and optional WooCommerce deposit checkout.
 
 **Features:**
 
-* Multi-step booking form via shortcode `[focus_booking]`
+* Multi-step booking form via shortcode `[snapbook]`
+* Gutenberg-friendly block pattern that inserts the native Shortcode block
 * Session types, packages, and add-ons management
 * Date slot calendar (available / booked / blocked)
 * WooCommerce integration for deposit payments
@@ -26,10 +27,10 @@ Focus Photography Booking is a complete booking solution for photography studios
 
 == Installation ==
 
-1. Upload the `focus-photography-booking` folder to the `/wp-content/plugins/` directory.
+1. Upload the `snapbook` folder to the `/wp-content/plugins/` directory.
 2. Activate the plugin through the **Plugins** menu in WordPress.
 3. Navigate to **FP Booking → Settings** to configure WhatsApp number, deposit percentage, and currency.
-4. Add the shortcode `[focus_booking]` to any page.
+4. Add the shortcode `[snapbook]` to any page.
 
 == Frequently Asked Questions ==
 
@@ -39,7 +40,7 @@ No. WooCommerce is optional. When active, clients pay a deposit at checkout. Wit
 
 = How do I display the booking form? =
 
-Use the shortcode `[focus_booking]` on any page or post.
+Use the shortcode `[snapbook]` on any page or post.
 
 = Can I block specific dates? =
 

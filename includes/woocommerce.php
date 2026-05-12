@@ -42,7 +42,7 @@ add_filter('woocommerce_cart_item_name', 'fpb_cart_item_name', 10, 2);
 function fpb_cart_item_name($name, $cart_item)
 {
     if (isset($cart_item['fpb_booking']['package_name'])) {
-        return esc_html__('Photography Session', 'focus-photography-booking')
+        return esc_html__('Photography Session', 'snapbook')
             . ' — ' . esc_html($cart_item['fpb_booking']['package_name']);
     }
     return $name;
@@ -58,13 +58,13 @@ function fpb_get_item_data($data, $cart_item)
     $b = $cart_item['fpb_booking'];
     $cur = $b['currency'] ?? get_option('fpb_currency_sym', '€');
 
-    if (! empty($b['session_type']))  $data[] = ['name' => __('Session',      'focus-photography-booking'), 'value' => esc_html($b['session_type'])];
-    if (! empty($b['session_date']))  $data[] = ['name' => __('Date',         'focus-photography-booking'), 'value' => esc_html($b['session_date'])];
-    if (! empty($b['client_name']))   $data[] = ['name' => __('Client',       'focus-photography-booking'), 'value' => esc_html($b['client_name'])];
-    if (! empty($b['addons_label']))  $data[] = ['name' => __('Add-ons',      'focus-photography-booking'), 'value' => esc_html($b['addons_label'])];
+    if (! empty($b['session_type']))  $data[] = ['name' => __('Session',      'snapbook'), 'value' => esc_html($b['session_type'])];
+    if (! empty($b['session_date']))  $data[] = ['name' => __('Date',         'snapbook'), 'value' => esc_html($b['session_date'])];
+    if (! empty($b['client_name']))   $data[] = ['name' => __('Client',       'snapbook'), 'value' => esc_html($b['client_name'])];
+    if (! empty($b['addons_label']))  $data[] = ['name' => __('Add-ons',      'snapbook'), 'value' => esc_html($b['addons_label'])];
     /* translators: 1: currency symbol, 2: deposit amount, 3: deposit percentage */
-    $deposit_label = sprintf(__('%1$s%2$s (deposit, %3$d%%)', 'focus-photography-booking'), esc_html($cur), number_format($b['deposit'] ?? 0, 2), (int) get_option('fpb_deposit_pct', 50));
-    $data[] = ['name' => __('Due today', 'focus-photography-booking'), 'value' => $deposit_label];
+    $deposit_label = sprintf(__('%1$s%2$s (deposit, %3$d%%)', 'snapbook'), esc_html($cur), number_format($b['deposit'] ?? 0, 2), (int) get_option('fpb_deposit_pct', 50));
+    $data[] = ['name' => __('Due today', 'snapbook'), 'value' => $deposit_label];
 
     return $data;
 }

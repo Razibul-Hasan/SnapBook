@@ -225,7 +225,7 @@ function fpb_create_wc_product()
     }
 
     $product = new WC_Product_Simple();
-    $product->set_name(__('Photography Session Booking', 'focus-photography-booking'));
+    $product->set_name(__('Photography Session Booking', 'snapbook'));
     $product->set_status('publish');
     $product->set_catalog_visibility('hidden');
     $product->set_virtual(true);

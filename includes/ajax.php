@@ -4,9 +4,11 @@ defined('ABSPATH') || exit;
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Load session types + packages + add-ons
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_get_data',        'fpb_ajax_get_data');
-add_action('wp_ajax_nopriv_fpb_get_data', 'fpb_ajax_get_data');
-function fpb_ajax_get_data()
+add_action('wp_ajax_sb_get_data',        'sb_ajax_get_data');
+add_action('wp_ajax_nopriv_sb_get_data', 'sb_ajax_get_data');
+add_action('wp_ajax_fpb_get_data',        'sb_ajax_get_data');
+add_action('wp_ajax_nopriv_fpb_get_data', 'sb_ajax_get_data');
+function sb_ajax_get_data()
 {
     check_ajax_referer('fpb_nonce', 'nonce');
     global $wpdb;
@@ -28,9 +30,11 @@ function fpb_ajax_get_data()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Get booked/blocked dates for calendar
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_get_dates',        'fpb_ajax_get_dates');
-add_action('wp_ajax_nopriv_fpb_get_dates', 'fpb_ajax_get_dates');
-function fpb_ajax_get_dates()
+add_action('wp_ajax_sb_get_dates',        'sb_ajax_get_dates');
+add_action('wp_ajax_nopriv_sb_get_dates', 'sb_ajax_get_dates');
+add_action('wp_ajax_fpb_get_dates',        'sb_ajax_get_dates');
+add_action('wp_ajax_nopriv_fpb_get_dates', 'sb_ajax_get_dates');
+function sb_ajax_get_dates()
 {
     check_ajax_referer('fpb_nonce', 'nonce');
     global $wpdb;
@@ -46,9 +50,11 @@ function fpb_ajax_get_dates()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Get enabled WooCommerce payment gateways
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_get_payment_gateways',        'fpb_ajax_get_payment_gateways');
-add_action('wp_ajax_nopriv_fpb_get_payment_gateways', 'fpb_ajax_get_payment_gateways');
-function fpb_ajax_get_payment_gateways()
+add_action('wp_ajax_sb_get_payment_gateways',        'sb_ajax_get_payment_gateways');
+add_action('wp_ajax_nopriv_sb_get_payment_gateways', 'sb_ajax_get_payment_gateways');
+add_action('wp_ajax_fpb_get_payment_gateways',        'sb_ajax_get_payment_gateways');
+add_action('wp_ajax_nopriv_fpb_get_payment_gateways', 'sb_ajax_get_payment_gateways');
+function sb_ajax_get_payment_gateways()
 {
     check_ajax_referer('fpb_nonce', 'nonce');
 
@@ -74,14 +80,16 @@ function fpb_ajax_get_payment_gateways()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Add to WooCommerce cart + return checkout URL
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_add_to_cart',        'fpb_ajax_add_to_cart');
-add_action('wp_ajax_nopriv_fpb_add_to_cart', 'fpb_ajax_add_to_cart');
-function fpb_ajax_add_to_cart()
+add_action('wp_ajax_sb_add_to_cart',        'sb_ajax_add_to_cart');
+add_action('wp_ajax_nopriv_sb_add_to_cart', 'sb_ajax_add_to_cart');
+add_action('wp_ajax_fpb_add_to_cart',        'sb_ajax_add_to_cart');
+add_action('wp_ajax_nopriv_fpb_add_to_cart', 'sb_ajax_add_to_cart');
+function sb_ajax_add_to_cart()
 {
     check_ajax_referer('fpb_nonce', 'nonce');
 
     if (! class_exists('WooCommerce')) {
-        wp_send_json_error(['message' => __('WooCommerce is required for online checkout.', 'focus-photography-booking')]);
+        wp_send_json_error(['message' => __('WooCommerce is required for online checkout.', 'snapbook')]);
     }
 
     $product_id = (int) get_option('fpb_wc_product_id', 0);
@@ -90,7 +98,7 @@ function fpb_ajax_add_to_cart()
         $product_id = (int) get_option('fpb_wc_product_id', 0);
     }
     if (! $product_id) {
-        wp_send_json_error(['message' => __('Booking product not configured. Please contact support.', 'focus-photography-booking')]);
+        wp_send_json_error(['message' => __('Booking product not configured. Please contact support.', 'snapbook')]);
     }
 
     $cur     = get_option('fpb_currency_sym', '€');
@@ -120,7 +128,7 @@ function fpb_ajax_add_to_cart()
     ];
 
     if (! is_email($booking['client_email'])) {
-        wp_send_json_error(['message' => __('Invalid email address.', 'focus-photography-booking')]);
+        wp_send_json_error(['message' => __('Invalid email address.', 'snapbook')]);
     }
 
     // Save booking to a short-lived transient so the normal page request can
@@ -136,8 +144,8 @@ function fpb_ajax_add_to_cart()
    FRONT-END — Intercept ?fpb_checkout=TOKEN, add to WC cart,
    then forward to the real WooCommerce checkout page.
 ═══════════════════════════════════════════════════════════════ */
-add_action('template_redirect', 'fpb_handle_checkout_redirect');
-function fpb_handle_checkout_redirect()
+add_action('template_redirect', 'sb_handle_checkout_redirect');
+function sb_handle_checkout_redirect()
 {
     $token = sanitize_text_field(wp_unslash($_GET['fpb_checkout'] ?? '')); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     if (! $token || ! class_exists('WooCommerce')) {
@@ -146,13 +154,13 @@ function fpb_handle_checkout_redirect()
 
     $booking = get_transient('fpb_checkout_' . $token);
     if (! $booking) {
-        wp_die(esc_html__('This booking link has expired. Please go back and try again.', 'focus-photography-booking'));
+        wp_die(esc_html__('This booking link has expired. Please go back and try again.', 'snapbook'));
     }
     delete_transient('fpb_checkout_' . $token);
 
     $product_id = (int) ($booking['product_id'] ?? get_option('fpb_wc_product_id', 0));
     if (! $product_id) {
-        wp_die(esc_html__('Booking product not found. Please contact support.', 'focus-photography-booking'));
+        wp_die(esc_html__('Booking product not found. Please contact support.', 'snapbook'));
     }
 
     WC()->cart->empty_cart();
@@ -165,9 +173,11 @@ function fpb_handle_checkout_redirect()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Fallback email submit (when WooCommerce not active)
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_submit',        'fpb_ajax_submit');
-add_action('wp_ajax_nopriv_fpb_submit', 'fpb_ajax_submit');
-function fpb_ajax_submit()
+add_action('wp_ajax_sb_submit',        'sb_ajax_submit');
+add_action('wp_ajax_nopriv_sb_submit', 'sb_ajax_submit');
+add_action('wp_ajax_fpb_submit',        'sb_ajax_submit');
+add_action('wp_ajax_nopriv_fpb_submit', 'sb_ajax_submit');
+function sb_ajax_submit()
 {
     check_ajax_referer('fpb_nonce', 'nonce');
 
@@ -183,14 +193,14 @@ function fpb_ajax_submit()
     $signer   = sanitize_text_field(wp_unslash($_POST['signer']   ?? ''));
 
     if (! is_email($email)) {
-        wp_send_json_error(['message' => __('Invalid email address.', 'focus-photography-booking')]);
+        wp_send_json_error(['message' => __('Invalid email address.', 'snapbook')]);
     }
 
     $admin_email = get_option('fpb_admin_email', get_option('admin_email'));
     wp_mail(
         $admin_email,
         /* translators: %s: client name */
-        sprintf(__('New Booking Request — %s', 'focus-photography-booking'), $name),
+        sprintf(__('New Booking Request — %s', 'snapbook'), $name),
         sprintf(
             "New booking:\n\nName: %s\nEmail: %s\nPhone: %s\nPackage: %s\nTotal: %s\nDate: %s\nTime: %s\nLocation: %s\nSigner: %s\n\nNotes:\n%s",
             esc_html($name),
@@ -207,7 +217,7 @@ function fpb_ajax_submit()
     );
     wp_mail(
         $email,
-        __('Booking request received — Focus Photography', 'focus-photography-booking'),
+        __('Booking request received — SnapBook', 'snapbook'),
         sprintf(
             "Hi %s,\n\nThank you for your booking request. We will confirm within 24 hours.\n\nPackage: %s\nDate: %s\nTotal: %s\n\nFocus Photography Mauritius",
             esc_html(explode(' ', $name)[0]),
@@ -265,7 +275,7 @@ function fpb_admin_save_session()
     wp_send_json_success(['id' => $id, 'slug' => $data['slug']]);
 }
 
-function fpb_admin_delete_session()
+function sb_admin_delete_session()
 {
     check_ajax_referer('fpb_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
@@ -274,6 +284,13 @@ function fpb_admin_delete_session()
     $id  = absint(wp_unslash($_POST['id'] ?? 0));
     $wpdb->delete("{$pfx}sessions", ['id' => $id]); // phpcs:ignore
     wp_send_json_success();
+}
+
+if (!function_exists('fpb_admin_delete_session')) {
+    function fpb_admin_delete_session()
+    {
+        sb_admin_delete_session();
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -313,13 +330,20 @@ function fpb_admin_save_package()
     wp_send_json_success(['id' => $id]);
 }
 
-function fpb_admin_delete_package()
+function sb_admin_delete_package()
 {
     check_ajax_referer('fpb_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $wpdb->delete($wpdb->prefix . 'fpb_packages', ['id' => absint(wp_unslash($_POST['id'] ?? 0))]); // phpcs:ignore
     wp_send_json_success();
+}
+
+if (!function_exists('fpb_admin_delete_package')) {
+    function fpb_admin_delete_package()
+    {
+        sb_admin_delete_package();
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -356,13 +380,20 @@ function fpb_admin_save_addon()
     wp_send_json_success(['id' => $id]);
 }
 
-function fpb_admin_delete_addon()
+function sb_admin_delete_addon()
 {
     check_ajax_referer('fpb_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $wpdb->delete($wpdb->prefix . 'fpb_addons', ['id' => absint(wp_unslash($_POST['id'] ?? 0))]); // phpcs:ignore
     wp_send_json_success();
+}
+
+if (!function_exists('fpb_admin_delete_addon')) {
+    function fpb_admin_delete_addon()
+    {
+        sb_admin_delete_addon();
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -420,7 +451,29 @@ function fpb_admin_update_booking_status()
     global $wpdb;
     $id     = absint(wp_unslash($_POST['id'] ?? 0));
     $status = sanitize_text_field(wp_unslash($_POST['status'] ?? ''));
-    if (! in_array($status, ['pending', 'confirmed', 'cancelled'], true)) wp_send_json_error();
+    if (! in_array($status, ['pending', 'confirmed', 'cancelled', 'completed'], true)) wp_send_json_error();
+
+    // Update booking status
     $wpdb->update($wpdb->prefix . 'fpb_bookings', ['status' => $status], ['id' => $id]); // phpcs:ignore
+
+    // Get associated order and update WooCommerce order status
+    $booking = $wpdb->get_row($wpdb->prepare("SELECT order_id FROM {$wpdb->prefix}fpb_bookings WHERE id = %d", $id)); // phpcs:ignore
+    if ($booking && $booking->order_id) {
+        $order = wc_get_order($booking->order_id);
+        if ($order) {
+            // Map booking status to WooCommerce order status
+            $wc_status = 'pending';
+            if ($status === 'confirmed') {
+                $wc_status = 'processing';
+            } elseif ($status === 'cancelled') {
+                $wc_status = 'cancelled';
+            } elseif ($status === 'completed') {
+                $wc_status = 'completed';
+            }
+            $order->set_status($wc_status);
+            $order->save();
+        }
+    }
+
     wp_send_json_success();
 }

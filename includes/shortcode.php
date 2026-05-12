@@ -4,46 +4,49 @@ defined('ABSPATH') || exit;
 /* ─────────────────────────────────────────────────────────────
    Register assets & shortcode
 ───────────────────────────────────────────────────────────── */
-add_action('wp_enqueue_scripts', 'fpb_register_assets');
-function fpb_register_assets()
+add_action('wp_enqueue_scripts', 'sb_register_assets');
+function sb_register_assets()
 {
     wp_register_style(
-        'fpb-booking-css',
-        FPB_URL . 'assets/css/booking.css',
+        'sb-booking-css',
+        SB_URL . 'assets/css/booking.css',
         [],
-        FPB_VER
+        SB_VER
     );
     wp_register_script(
-        'fpb-booking-js',
-        FPB_URL . 'assets/js/booking.js',
+        'sb-booking-js',
+        SB_URL . 'assets/js/booking.js',
         [],
-        FPB_VER,
+        SB_VER,
         true
     );
 }
 
-add_shortcode('focus_booking', 'fpb_shortcode');
-function fpb_shortcode($atts)
+add_shortcode('snapbook', 'sb_shortcode');
+add_shortcode('focus_booking', 'sb_shortcode');
+function sb_shortcode($atts)
 {
-    wp_enqueue_style('fpb-booking-css');
-    wp_enqueue_script('fpb-booking-js');
+    wp_enqueue_style('sb-booking-css');
+    wp_enqueue_script('sb-booking-js');
 
     $has_wc = class_exists('WooCommerce');
-    wp_localize_script('fpb-booking-js', 'fpbData', [
+    $local_data = [
         'ajaxUrl'    => admin_url('admin-ajax.php'),
         'nonce'      => wp_create_nonce('fpb_nonce'),
         'hasWC'      => $has_wc,
         'currency'   => get_option('fpb_currency_sym', '€'),
         'depositPct' => (int) get_option('fpb_deposit_pct', 50),
         'whatsapp'   => get_option('fpb_whatsapp', ''),
-    ]);
+    ];
+    wp_localize_script('sb-booking-js', 'fpbData', $local_data);
+    wp_localize_script('sb-booking-js', 'sbData', $local_data);
 
     ob_start();
-    fpb_render_shortcode();
+    sb_render_shortcode();
     return ob_get_clean();
 }
 
-function fpb_render_shortcode()
+function sb_render_shortcode()
 { ?>
     <div class="fpb-wrap">
         <!-- ── Step indicator ── -->
@@ -426,17 +429,17 @@ function fpb_render_shortcode()
 
                     <p class="fpb-sec-note">🔒 Secure checkout powered by WooCommerce — Stripe, PayPal and more accepted.</p>
 
-                        <div class="fpb-gateway-box" id="fpb-gatewayBox">
-                            <div class="fpb-gateway-title">Available payment methods</div>
-                            <div class="fpb-gateway-list" id="fpb-gatewayList">
-                                <p class="fpb-gateway-loading">Loading payment methods…</p>
-                            </div>
+                    <div class="fpb-gateway-box" id="fpb-gatewayBox">
+                        <div class="fpb-gateway-title">Available payment methods</div>
+                        <div class="fpb-gateway-list" id="fpb-gatewayList">
+                            <p class="fpb-gateway-loading">Loading payment methods…</p>
                         </div>
+                    </div>
 
                     <div class="fnav">
                         <button class="btn bo" onclick="fpb.bkGo(3)">← Back</button>
                         <button class="btn bg fpb-checkout-btn" id="fpb-checkoutBtn" onclick="fpb.proceedToCheckout()">
-                                Proceed to Payment →
+                            Proceed to Payment →
                         </button>
                     </div>
                     <p id="fpb-checkoutMsg" class="fpb-checkout-msg"></p>
