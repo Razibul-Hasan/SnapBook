@@ -49,6 +49,16 @@
      Shareable package deep-link (?package=slug-or-id)
   ------------------------------------------------- */
   function getUrlPackageParam() {
+    // A pre-selected package can come from the Elementor widget / Gutenberg
+    // block (data-package on the wrapper) or a ?package= share link. The
+    // explicit editor choice wins over the URL.
+    try {
+      const wrap = document.querySelector(".fpb-wrap[data-package]");
+      const fromWrap = wrap ? (wrap.getAttribute("data-package") || "").trim() : "";
+      if (fromWrap) return fromWrap;
+    } catch (_e) {
+      /* fall through to URL */
+    }
     try {
       return (
         new URLSearchParams(window.location.search).get("package") || ""

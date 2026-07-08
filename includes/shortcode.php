@@ -283,7 +283,45 @@ function sb_hex_mix($hex, $mix_hex, $ratio)
 }
 
 /**
- * Build the CSS-variable override block. Returns '' when the admin
+ * Build a CSS-variable override block for a given primary/accent pair,
+ * scoped to $selector. The derived shades match sb_theme_css() exactly,
+ * so per-instance overrides (Elementor widget / Gutenberg block) and the
+ * global Appearance setting stay visually consistent. Returns '' when the
+ * colors are empty or invalid.
+ */
+function sb_theme_vars_css($primary, $accent, $selector = '.fpb-wrap')
+{
+    $primary = trim((string) $primary);
+    $accent  = trim((string) $accent);
+    $valid   = static function ($hex) {
+        return (bool) preg_match('/^#([0-9a-f]{3}|[0-9a-f]{6})$/i', (string) $hex);
+    };
+    if (! $valid($primary) && ! $valid($accent)) {
+        return '';
+    }
+
+    $vars = '';
+    if ($valid($primary)) {
+        $vars .= sprintf(
+            '--fpb-gold:%s;--fpb-gold-dk:%s;--fpb-gold-lt:%s;',
+            $primary,
+            sb_hex_mix($primary, '#000000', 0.18),
+            sb_hex_mix($primary, '#ffffff', 0.72)
+        );
+    }
+    if ($valid($accent)) {
+        $vars .= sprintf(
+            '--fpb-teal:%s;--fpb-teal-lt:%s;',
+            $accent,
+            sb_hex_mix($accent, '#ffffff', 0.86)
+        );
+    }
+
+    return sprintf('%s{%s}', $selector, $vars);
+}
+
+/**
+ * Build the global CSS-variable override block. Returns '' when the admin
  * hasn't customized anything, so the stylesheet's hand-tuned palette
  * stays byte-identical by default.
  */
@@ -295,20 +333,36 @@ function sb_theme_css()
         return '';
     }
 
-    $primary    = $colors['primary'];
-    $primary_dk = sb_hex_mix($primary, '#000000', 0.18);
-    $primary_lt = sb_hex_mix($primary, '#ffffff', 0.72);
-    $accent     = $colors['accent'];
-    $accent_lt  = sb_hex_mix($accent, '#ffffff', 0.86);
+    return sb_theme_vars_css($colors['primary'], $colors['accent'], '.fpb-wrap');
+}
 
-    return sprintf(
-        '.fpb-wrap{--fpb-gold:%s;--fpb-gold-dk:%s;--fpb-gold-lt:%s;--fpb-teal:%s;--fpb-teal-lt:%s;}',
-        $primary,
-        $primary_dk,
-        $primary_lt,
-        $accent,
-        $accent_lt
+/**
+ * Active packages for editor "pre-select a package" pickers (Elementor
+ * control + Gutenberg block). Each entry carries the stable slug (falling
+ * back to the numeric id) plus a human label prefixed with its session
+ * type — matching the values the ?package= deep-link accepts.
+ */
+function sb_get_active_packages_for_picker()
+{
+    global $wpdb;
+    $pfx  = $wpdb->prefix . 'fpb_';
+    $rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared
+        "SELECT p.id, p.slug, p.name, s.name AS session_name
+           FROM {$pfx}packages p
+           JOIN {$pfx}sessions s ON s.id = p.session_id
+          WHERE p.active = 1 AND s.active = 1
+          ORDER BY s.sort_order, s.id, p.sort_order, p.id"
     );
+
+    $out = [];
+    foreach ((array) $rows as $r) {
+        $value = ($r->slug !== null && $r->slug !== '') ? $r->slug : (string) (int) $r->id;
+        $out[] = [
+            'value' => $value,
+            'label' => trim(($r->session_name ? $r->session_name . ' — ' : '') . $r->name),
+        ];
+    }
+    return $out;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -341,6 +395,12 @@ add_shortcode('snapbook', 'sb_shortcode');
 add_shortcode('focus_booking', 'sb_shortcode');
 function sb_shortcode($atts)
 {
+    $atts = shortcode_atts([
+        'package' => '',
+        'primary' => '',
+        'accent'  => '',
+    ], $atts, 'snapbook');
+
     wp_enqueue_style('sb-booking-css');
     if (wp_style_is('sb-icon-library', 'registered')) {
         wp_enqueue_style('sb-icon-library');
@@ -350,6 +410,13 @@ function sb_shortcode($atts)
     $theme_css = sb_theme_css();
     if ($theme_css !== '') {
         wp_add_inline_style('sb-booking-css', $theme_css);
+    }
+
+    // Per-instance color overrides (from the Elementor widget / Gutenberg
+    // block passing primary/accent atts) scoped to this instance only.
+    $instance_css = sb_theme_vars_css($atts['primary'], $atts['accent'], '.fpb-wrap');
+    if ($instance_css !== '') {
+        wp_add_inline_style('sb-booking-css', $instance_css);
     }
 
     $has_wc = class_exists('WooCommerce');
@@ -372,7 +439,7 @@ function sb_shortcode($atts)
     wp_localize_script('sb-booking-js', 'fpbData', $local_data);
 
     ob_start();
-    sb_render_shortcode();
+    sb_render_shortcode(['package' => $atts['package']]);
     return ob_get_clean();
 }
 
@@ -549,8 +616,11 @@ function sb_render_custom_checkout_field($key, $f, $force_span = false)
     echo '</div>';
 }
 
-function sb_render_shortcode()
+function sb_render_shortcode($opts = [])
 {
+    $opts = wp_parse_args($opts, ['package' => '']);
+    $preselect = trim((string) $opts['package']);
+
     $has_wc = class_exists('WooCommerce');
     $mode   = sb_get_checkout_mode();
     if (! $has_wc) {
@@ -559,7 +629,7 @@ function sb_render_shortcode()
         $checkout_label = ($mode === 'direct') ? __('Place Booking & Pay', 'snapbook') : __('Proceed to Payment', 'snapbook');
     }
 ?>
-    <div class="fpb-wrap">
+    <div class="fpb-wrap"<?php echo $preselect !== '' ? ' data-package="' . esc_attr($preselect) . '"' : ''; ?>>
 
         <!-- Step indicator -->
         <div class="sbar2" id="fpb-steps">
