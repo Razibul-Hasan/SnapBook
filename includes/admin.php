@@ -37,6 +37,30 @@ function sb_admin_assets($hook)
     ]);
 }
 
+function sb_is_plugin_admin_page()
+{
+    $page = sanitize_key(wp_unslash($_GET['page'] ?? '')); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+    return strpos($page, 'sb-') === 0;
+}
+
+add_filter('admin_footer_text', 'sb_hide_admin_footer_text');
+function sb_hide_admin_footer_text($footer_text)
+{
+    if (! sb_is_plugin_admin_page()) {
+        return $footer_text;
+    }
+    return '';
+}
+
+add_filter('update_footer', 'sb_hide_admin_version_text', 999);
+function sb_hide_admin_version_text($version_text)
+{
+    if (! sb_is_plugin_admin_page()) {
+        return $version_text;
+    }
+    return '';
+}
+
 /* ═══════════════════════════════════════════════════════════════
    HELPER — shared page wrapper
 ═══════════════════════════════════════════════════════════════ */
@@ -67,6 +91,13 @@ function sb_wrap_close()
     echo '</div></div>';
 }
 
+function sb_render_smart_layout_bar($base_url)
+{
+    echo '<div class="fpb-smart-bar">';
+    echo '<a class="button button-primary fpb-smart-add" href="' . esc_url($base_url) . '">+ ' . esc_html__('Add New', 'snapbook') . '</a>';
+    echo '</div>';
+}
+
 /* ═══════════════════════════════════════════════════════════════
    PAGE — ALL BOOKINGS
 ═══════════════════════════════════════════════════════════════ */
@@ -75,6 +106,7 @@ function sb_page_bookings()
     if (! current_user_can('manage_options')) return;
     global $wpdb;
     $pfx      = $wpdb->prefix . 'fpb_';
+    $cur      = sb_get_currency_symbol();
     $status   = sanitize_text_field(wp_unslash($_GET['status'] ?? '')); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     $where    = $status ? $wpdb->prepare('WHERE status = %s', $status) : '';
     $bookings = $wpdb->get_results("SELECT * FROM {$pfx}bookings {$where} ORDER BY created_at DESC LIMIT 200"); // phpcs:ignore
@@ -109,8 +141,8 @@ function sb_page_bookings()
             echo '<td><strong>' . esc_html($b->client_name) . '</strong><br><small>' . esc_html($b->client_email) . '</small></td>';
             echo '<td>' . esc_html($b->session_type) . '<br><small>' . esc_html($b->package_name) . '</small></td>';
             echo '<td>' . esc_html($b->session_date ? date_i18n(get_option('date_format'), strtotime($b->session_date)) : '—') . '</td>';
-            echo '<td>€' . esc_html(number_format((float) $b->total, 2)) . '</td>';
-            echo '<td>€' . esc_html(number_format((float) $b->deposit, 2)) . '</td>';
+            echo '<td>' . esc_html($cur) . esc_html(number_format((float) $b->total, 2)) . '</td>';
+            echo '<td>' . esc_html($cur) . esc_html(number_format((float) $b->deposit, 2)) . '</td>';
             echo '<td><span class="sb-badge sb-badge-' . esc_attr($b->status) . '">' . esc_html(ucfirst($b->status)) . '</span></td>';
             $order_link = $b->order_id ? '<a href="' . esc_url(admin_url('post.php?post=' . (int) $b->order_id . '&action=edit')) . '">#' . (int) $b->order_id . '</a>' : '—';
             echo '<td>' . wp_kses_post($order_link) . '</td>';
@@ -147,19 +179,21 @@ function sb_page_sessions()
     $edit_row = $edit_id ? $wpdb->get_row($wpdb->prepare("SELECT * FROM {$pfx}sessions WHERE id=%d", $edit_id)) : null; // phpcs:ignore
 
     sb_wrap_open('Session Types', 'sb-sessions');
-    echo '<div class="fpb-two-col">';
+    sb_render_smart_layout_bar(admin_url('admin.php?page=sb-sessions'));
 
     // ── Add / Edit form ─
-    echo '<div class="postbox fpb-form-card"><div class="inside">';
+    echo '<div class="postbox fpb-form-card" id="fpb-sessions-add"><div class="inside">';
     echo '<h3 class="fpb-form-title">' . ($edit_row ? 'Edit Session Type' : 'Add New Session Type') . '</h3>';
     echo '<form id="fpb-session-form">';
     wp_nonce_field('fpb_admin_nonce', 'fpb_nonce');
     echo '<input type="hidden" name="id" value="' . ($edit_row ? (int) $edit_row->id : 0) . '">';
+    echo '<div class="fpb-form-grid cols-2">';
     echo '<div class="fpb-field"><label>Emoji</label><input class="small-text" type="text" name="emoji" maxlength="5" placeholder="📷" value="' . esc_attr($edit_row->emoji ?? '') . '"></div>';
     echo '<div class="fpb-field"><label>Name <span class="req">*</span></label><input class="regular-text" type="text" id="fpb-session-name" name="name" required placeholder="Holiday / Couple Photoshoot" value="' . esc_attr($edit_row->name ?? '') . '"></div>';
     echo '<div class="fpb-field"><label>Slug <span class="req">*</span></label><input class="regular-text" type="text" id="fpb-session-slug" name="slug" required placeholder="photo" value="' . esc_attr($edit_row->slug ?? '') . '"></div>';
     echo '<div class="fpb-field"><label>Sort Order</label><input class="small-text" type="number" name="sort_order" value="' . esc_attr($edit_row->sort_order ?? 0) . '" min="0"></div>';
     echo '<div class="fpb-field"><label><input type="checkbox" name="active" value="1"' . (isset($edit_row->active) ? checked(1, $edit_row->active, false) : ' checked') . '> Active</label></div>';
+    echo '</div>';
     echo '<div class="fpb-form-actions">';
     echo '<button type="submit" class="button button-primary fpb-btn" id="fpb-session-save">' . ($edit_row ? 'Update' : 'Add Session Type') . '</button>';
     if ($edit_row) echo '<a href="' . esc_url(admin_url('admin.php?page=sb-sessions')) . '" class="button fpb-btn fpb-btn-ghost">Cancel</a>';
@@ -167,7 +201,7 @@ function sb_page_sessions()
     echo '</form></div></div>';
 
     // ── List ─
-    echo '<div class="postbox fpb-list-card"><div class="inside">';
+    echo '<div class="postbox fpb-list-card" id="fpb-sessions-list"><div class="inside">';
     if (empty($sessions)) {
         echo '<div class="fpb-empty">No session types yet.</div>';
     } else {
@@ -187,7 +221,6 @@ function sb_page_sessions()
         echo '</tbody></table>';
     }
     echo '</div></div>';
-    echo '</div>'; // fpb-two-col
     sb_wrap_close();
 }
 
@@ -199,6 +232,7 @@ function sb_page_packages()
     if (! current_user_can('manage_options')) return;
     global $wpdb;
     $pfx      = $wpdb->prefix . 'fpb_';
+    $cur      = sb_get_currency_symbol();
     $sessions = $wpdb->get_results("SELECT * FROM {$pfx}sessions WHERE active=1 ORDER BY sort_order, id"); // phpcs:ignore
     $filter   = isset($_GET['session']) ? (int) $_GET['session'] : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     $where    = $filter ? $wpdb->prepare('AND p.session_id = %d', $filter) : '';
@@ -207,14 +241,15 @@ function sb_page_packages()
     $edit_row = $edit_id ? $wpdb->get_row($wpdb->prepare("SELECT * FROM {$pfx}packages WHERE id=%d", $edit_id)) : null; // phpcs:ignore
 
     sb_wrap_open('Packages', 'sb-packages');
-    echo '<div class="fpb-two-col">';
+    sb_render_smart_layout_bar(admin_url('admin.php?page=sb-packages'));
 
     // ── Form ─
-    echo '<div class="postbox fpb-form-card"><div class="inside">';
+    echo '<div class="postbox fpb-form-card" id="fpb-packages-add"><div class="inside">';
     echo '<h3 class="fpb-form-title">' . ($edit_row ? 'Edit Package' : 'Add New Package') . '</h3>';
     echo '<form id="fpb-package-form">';
     wp_nonce_field('fpb_admin_nonce', 'fpb_nonce');
     echo '<input type="hidden" name="id" value="' . ($edit_row ? (int) $edit_row->id : 0) . '">';
+    echo '<div class="fpb-form-grid cols-2">';
     echo '<div class="fpb-field"><label>Session Type <span class="req">*</span></label><select name="session_id" required>';
     foreach ($sessions as $s) {
         $sel = $edit_row ? selected((int) $edit_row->session_id, (int) $s->id, false) : '';
@@ -222,12 +257,13 @@ function sb_page_packages()
     }
     echo '</select></div>';
     echo '<div class="fpb-field"><label>Package Name <span class="req">*</span></label><input class="regular-text" type="text" name="name" required placeholder="Golden Hour" value="' . esc_attr($edit_row->name ?? '') . '"></div>';
-    echo '<div class="fpb-field fpb-field-half"><label>Price (€) <span class="req">*</span></label><input class="small-text" type="number" name="price" required step="0.01" min="0" placeholder="199" value="' . esc_attr($edit_row->price ?? '') . '"></div>';
+    echo '<div class="fpb-field fpb-field-half"><label>Price (' . esc_html($cur) . ') <span class="req">*</span></label><input class="small-text" type="number" name="price" required step="0.01" min="0" placeholder="199" value="' . esc_attr($edit_row->price ?? '') . '"></div>';
     echo '<div class="fpb-field fpb-field-half"><label>Duration</label><input class="regular-text" type="text" name="duration" placeholder="1hr · 30 photos" value="' . esc_attr($edit_row->duration ?? '') . '"></div>';
     echo '<div class="fpb-field"><label>Description</label><input class="regular-text" type="text" name="description" placeholder="Short tagline shown on card" value="' . esc_attr($edit_row->description ?? '') . '"></div>';
     echo '<div class="fpb-field fpb-field-half"><label>Sort Order</label><input class="small-text" type="number" name="sort_order" value="' . esc_attr($edit_row->sort_order ?? 0) . '" min="0"></div>';
     echo '<div class="fpb-field fpb-field-half"><label><input type="checkbox" name="featured" value="1"' . (isset($edit_row->featured) ? checked(1, $edit_row->featured, false) : '') . '> Featured ⭐</label></div>';
     echo '<div class="fpb-field"><label><input type="checkbox" name="active" value="1"' . (isset($edit_row->active) ? checked(1, $edit_row->active, false) : ' checked') . '> Active</label></div>';
+    echo '</div>';
     echo '<div class="fpb-form-actions">';
     echo '<button type="submit" class="button button-primary fpb-btn">' . ($edit_row ? 'Update Package' : 'Add Package') . '</button>';
     if ($edit_row) echo '<a href="' . esc_url(admin_url('admin.php?page=sb-packages')) . '" class="button fpb-btn fpb-btn-ghost">Cancel</a>';
@@ -235,7 +271,7 @@ function sb_page_packages()
     echo '</form></div></div>';
 
     // ── List with session filter ─
-    echo '<div class="postbox fpb-list-card"><div class="inside">';
+    echo '<div class="postbox fpb-list-card" id="fpb-packages-list"><div class="inside">';
     echo '<ul class="subsubsub fpb-filter-bar" style="margin-bottom:1rem">';
     echo '<li><a href="' . esc_url(admin_url('admin.php?page=sb-packages')) . '" class="fpb-filter-btn' . (! $filter ? ' current active' : '') . '">All</a> | </li>';
     $session_count = count($sessions);
@@ -257,7 +293,7 @@ function sb_page_packages()
             echo '<tr>';
             echo '<td>' . esc_html($row->semoji . ' ' . $row->sname) . '</td>';
             echo '<td>' . esc_html($row->name) . '</td>';
-            echo '<td>€' . esc_html(number_format((float) $row->price, 0)) . '</td>';
+            echo '<td>' . esc_html($cur) . esc_html(number_format((float) $row->price, 0)) . '</td>';
             echo '<td>' . esc_html($row->duration) . '</td>';
             echo '<td>' . ($row->featured ? '⭐' : '—') . '</td>';
             echo '<td>' . ($row->active ? '✅' : '❌') . '</td>';
@@ -269,7 +305,6 @@ function sb_page_packages()
         echo '</tbody></table>';
     }
     echo '</div></div>';
-    echo '</div>';
     sb_wrap_close();
 }
 
@@ -281,21 +316,23 @@ function sb_page_addons()
     if (! current_user_can('manage_options')) return;
     global $wpdb;
     $pfx     = $wpdb->prefix . 'fpb_';
+    $cur     = sb_get_currency_symbol();
     $addons  = $wpdb->get_results("SELECT a.*, p.name AS pname FROM {$pfx}addons a LEFT JOIN {$pfx}packages p ON p.id=a.package_id ORDER BY a.sort_order, a.id"); // phpcs:ignore
     $all_packages = $wpdb->get_results("SELECT p.id, p.name, s.emoji AS semoji, s.name AS sname FROM {$pfx}packages p JOIN {$pfx}sessions s ON s.id=p.session_id WHERE p.active=1 ORDER BY s.sort_order, p.sort_order, p.id"); // phpcs:ignore
     $edit_id  = isset($_GET['edit']) ? (int) $_GET['edit'] : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     $edit_row = $edit_id ? $wpdb->get_row($wpdb->prepare("SELECT * FROM {$pfx}addons WHERE id=%d", $edit_id)) : null; // phpcs:ignore
 
     sb_wrap_open('Add-ons', 'sb-addons');
-    echo '<div class="fpb-two-col">';
+    sb_render_smart_layout_bar(admin_url('admin.php?page=sb-addons'));
 
-    echo '<div class="postbox fpb-form-card"><div class="inside">';
+    echo '<div class="postbox fpb-form-card" id="fpb-addons-add"><div class="inside">';
     echo '<h3 class="fpb-form-title">' . ($edit_row ? 'Edit Add-on' : 'Add New Add-on') . '</h3>';
     echo '<form id="fpb-addon-form">';
     wp_nonce_field('fpb_admin_nonce', 'fpb_nonce');
     echo '<input type="hidden" name="id" value="' . ($edit_row ? (int) $edit_row->id : 0) . '">';
+    echo '<div class="fpb-form-grid cols-2">';
     echo '<div class="fpb-field fpb-field-half"><label>Emoji</label><input class="small-text" type="text" name="emoji" maxlength="5" placeholder="🚁" value="' . esc_attr($edit_row->emoji ?? '') . '"></div>';
-    echo '<div class="fpb-field fpb-field-half"><label>Price (€) <span class="req">*</span></label><input class="small-text" type="number" name="price" required step="0.01" min="0" placeholder="150" value="' . esc_attr($edit_row->price ?? '') . '"></div>';
+    echo '<div class="fpb-field fpb-field-half"><label>Price (' . esc_html($cur) . ') <span class="req">*</span></label><input class="small-text" type="number" name="price" required step="0.01" min="0" placeholder="150" value="' . esc_attr($edit_row->price ?? '') . '"></div>';
     echo '<div class="fpb-field"><label>Name <span class="req">*</span></label><input class="regular-text" type="text" name="name" required placeholder="Drone aerial session" value="' . esc_attr($edit_row->name ?? '') . '"></div>';
     echo '<div class="fpb-field"><label>Description</label><input class="regular-text" type="text" name="description" placeholder="Short description" value="' . esc_attr($edit_row->description ?? '') . '"></div>';
 
@@ -310,13 +347,14 @@ function sb_page_addons()
 
     echo '<div class="fpb-field fpb-field-half"><label>Sort Order</label><input class="small-text" type="number" name="sort_order" value="' . esc_attr($edit_row->sort_order ?? 0) . '" min="0"></div>';
     echo '<div class="fpb-field fpb-field-half"><label><input type="checkbox" name="active" value="1"' . (isset($edit_row->active) ? checked(1, $edit_row->active, false) : ' checked') . '> Active</label></div>';
+    echo '</div>';
     echo '<div class="fpb-form-actions">';
     echo '<button type="submit" class="button button-primary fpb-btn">' . ($edit_row ? 'Update Add-on' : 'Add Add-on') . '</button>';
     if ($edit_row) echo '<a href="' . esc_url(admin_url('admin.php?page=sb-addons')) . '" class="button fpb-btn fpb-btn-ghost">Cancel</a>';
     echo '</div><div class="fpb-form-msg" id="fpb-addon-msg"></div>';
     echo '</form></div></div>';
 
-    echo '<div class="postbox fpb-list-card"><div class="inside">';
+    echo '<div class="postbox fpb-list-card" id="fpb-addons-list"><div class="inside">';
     if (empty($addons)) {
         echo '<div class="fpb-empty">No add-ons yet.</div>';
     } else {
@@ -326,7 +364,7 @@ function sb_page_addons()
             echo '<tr>';
             echo '<td>' . esc_html($row->emoji) . '</td>';
             echo '<td><strong>' . esc_html($row->name) . '</strong>' . ($row->description ? '<br><small>' . esc_html($row->description) . '</small>' : '') . '</td>';
-            echo '<td>€' . esc_html(number_format((float) $row->price, 0)) . '</td>';
+            echo '<td>' . esc_html($cur) . esc_html(number_format((float) $row->price, 0)) . '</td>';
             echo '<td>' . wp_kses_post($scope) . '</td>';
             echo '<td>' . ($row->active ? '✅' : '❌') . '</td>';
             echo '<td>';
@@ -337,7 +375,6 @@ function sb_page_addons()
         echo '</tbody></table>';
     }
     echo '</div></div>';
-    echo '</div>';
     sb_wrap_close();
 }
 
@@ -380,58 +417,26 @@ function sb_page_settings()
     if (! current_user_can('manage_options')) return;
 
     if (isset($_POST['fpb_settings_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['fpb_settings_nonce'])), 'fpb_settings')) {
-        // ── Shortcode — step labels ──────────────────────────────
-        foreach (['fpb_step1_label', 'fpb_step2_label', 'fpb_step3_label', 'fpb_step4_label'] as $key) {
-            update_option($key, sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
-        }
-        // ── Shortcode — step titles & subtitles ──────────────────
-        foreach (['fpb_step1_title', 'fpb_step1_sub', 'fpb_step2_title', 'fpb_step2_sub', 'fpb_step3_title', 'fpb_step3_sub', 'fpb_step4_title', 'fpb_step4_sub'] as $key) {
+        foreach (['fpb_step1_title', 'fpb_step1_sub'] as $key) {
             update_option($key, sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
         }
         echo '<div class="notice notice-success is-dismissible inline"><p>Settings saved.</p></div>';
     }
 
-    // ── Read stored values ───────────────────────────────────────
-    $step_labels = [
-        'fpb_step1_label' => ['Package',   __('Step 1 Label', 'snapbook')],
-        'fpb_step2_label' => ['Details',   __('Step 2 Label', 'snapbook')],
-        'fpb_step3_label' => ['Contract',  __('Step 3 Label', 'snapbook')],
-        'fpb_step4_label' => ['Payment',   __('Step 4 Label', 'snapbook')],
-    ];
-    $step_content = [
-        1 => [
-            'title_key' => 'fpb_step1_title',
-            'title_def' => 'Choose Your Package',
-            'sub_key'   => 'fpb_step1_sub',
-            'sub_def'   => 'Select your preferred date, session type, and the package that suits you best.',
-            'name'      => '📦 Step 1 — Package',
-        ],
-        2 => [
-            'title_key' => 'fpb_step2_title',
-            'title_def' => 'Your Details',
-            'sub_key'   => 'fpb_step2_sub',
-            'sub_def'   => 'All fields are required.',
-            'name'      => '📋 Step 2 — Details',
-        ],
-        3 => [
-            'title_key' => 'fpb_step3_title',
-            'title_def' => 'Contract & Signature',
-            'sub_key'   => 'fpb_step3_sub',
-            'sub_def'   => 'Please read and sign the service agreement.',
-            'name'      => '📝 Step 3 — Contract',
-        ],
-        4 => [
-            'title_key' => 'fpb_step4_title',
-            'title_def' => 'Confirm & Pay Deposit',
-            'sub_key'   => 'fpb_step4_sub',
-            'sub_def'   => 'Review your booking then proceed to secure checkout.',
-            'name'      => '💳 Step 4 — Payment',
-        ],
-    ];
+    $step1_title = get_option('fpb_step1_title', 'Choose Your Package');
+    $step1_sub = get_option('fpb_step1_sub', 'Select your preferred date, session type, and the package that suits you best.');
 
     sb_wrap_open('Settings', 'sb-settings');
-    echo '<form method="POST">';
+    echo '<form method="post" id="fpb-settings-form">';
     wp_nonce_field('fpb_settings', 'fpb_settings_nonce');
+
+    if (class_exists('WooCommerce') && function_exists('get_woocommerce_currency')) {
+        $wc_code = get_woocommerce_currency();
+        $wc_symbol = sb_get_currency_symbol();
+        echo '<div class="notice notice-info inline"><p>';
+        echo esc_html__('SnapBook uses WooCommerce store currency automatically:', 'snapbook') . ' <strong>' . esc_html($wc_code . ' (' . $wc_symbol . ')') . '</strong>';
+        echo '</p></div>';
+    }
 
     /* ── SECTION: Shortcode Reference ── */
     echo '<div class="postbox fpb-settings-section"><div class="inside">';
@@ -442,47 +447,28 @@ function sb_page_settings()
     echo '<code class="fpb-shortcode-code" id="fpb-sc-code">[focus_booking]</code>';
     echo '<button type="button" class="button button-secondary fpb-btn-sm" onclick="fpbCopyShortcode()">' . esc_html__('Copy', 'snapbook') . '</button>';
     echo '</div></div>';
-    echo '<p class="fpb-field-note">The form renders a 4-step booking wizard with package selection, client details, contract signature, and payment.</p>';
+    echo '<p class="fpb-field-note">The form renders a single-step booking flow and sends customers directly to WooCommerce checkout.</p>';
     echo '</div>';
     echo '</div>';
     echo '</div>';
 
-    /* ── SECTION: Shortcode — Step Indicator Labels ── */
+    /* ── SECTION: Frontend Heading ── */
     echo '<div class="postbox fpb-settings-section"><div class="inside">';
-    echo '<h2 class="fpb-section-title">🪧 Shortcode — Step Indicator Labels</h2>';
-    echo '<p class="fpb-section-desc">Short labels shown in the progress bar above the booking form.</p>';
+    echo '<h2 class="fpb-section-title">✏️ Frontend Text</h2>';
+    echo '<p class="fpb-section-desc">Manage the title and subtitle shown at the top of your booking form.</p>';
     echo '<div class="fpb-form-card fpb-form-single">';
-    echo '<div class="fpb-row">';
-    foreach ($step_labels as $key => [$default, $label]) {
-        $val = get_option($key, $default);
-        echo '<div class="fpb-field fpb-field-quarter"><label>' . esc_html($label) . '</label>';
-        echo '<input class="regular-text" type="text" name="' . esc_attr($key) . '" value="' . esc_attr($val) . '" placeholder="' . esc_attr($default) . '"></div>';
-    }
-    echo '</div></div>';
+    echo '<div class="fpb-field"><label>' . esc_html__('Heading', 'snapbook') . '</label>';
+    echo '<input class="regular-text" type="text" name="fpb_step1_title" value="' . esc_attr($step1_title) . '" placeholder="Choose Your Package"></div>';
+    echo '<div class="fpb-field"><label>' . esc_html__('Subtitle', 'snapbook') . '</label>';
+    echo '<input class="regular-text" type="text" name="fpb_step1_sub" value="' . esc_attr($step1_sub) . '" placeholder="Select your preferred date, session type, and the package that suits you best."></div>';
     echo '</div>';
-    echo '</div>';
-
-    /* ── SECTION: Shortcode — Step Titles & Subtitles ── */
-    echo '<div class="postbox fpb-settings-section"><div class="inside">';
-    echo '<h2 class="fpb-section-title">✏️ Shortcode — Step Titles &amp; Subtitles</h2>';
-    echo '<p class="fpb-section-desc">Heading and subtitle text displayed at the top of each booking step.</p>';
-    foreach ($step_content as $step) {
-        $title = get_option($step['title_key'], $step['title_def']);
-        $sub   = get_option($step['sub_key'],   $step['sub_def']);
-        echo '<div class="fpb-form-card fpb-form-single" style="margin-bottom:1rem">';
-        echo '<h3 class="fpb-form-title" style="margin-bottom:.8rem">' . esc_html($step['name']) . '</h3>';
-        echo '<div class="fpb-field"><label>' . esc_html__('Heading', 'snapbook') . '</label>';
-        echo '<input class="regular-text" type="text" name="' . esc_attr($step['title_key']) . '" value="' . esc_attr($title) . '" placeholder="' . esc_attr($step['title_def']) . '">' . "</div>";
-        echo '<div class="fpb-field"><label>' . esc_html__('Subtitle', 'snapbook') . '</label>';
-        echo '<input class="regular-text" type="text" name="' . esc_attr($step['sub_key']) . '" value="' . esc_attr($sub) . '" placeholder="' . esc_attr($step['sub_def']) . '"></div>';
-        echo '</div>';
-    }
     echo '</div></div>';
 
     /* ── SECTION: Form Save Button ── */
     echo '<div class="fpb-form-actions" style="padding:0 0 2rem">';
     echo '<button type="submit" class="button button-primary fpb-btn">' . esc_html__('Save All Settings', 'snapbook') . '</button>';
     echo '</div>';
+    echo '<div class="fpb-form-msg" id="fpb-settings-msg"></div>';
     echo '</form>';
 
     // Inline JS for copy shortcode button

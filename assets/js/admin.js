@@ -152,11 +152,15 @@
       document.getElementById("sb-booking-modal");
     if (!modal) return;
 
-    const sourceBookings = window.fpbBookings || window.sbBookings;
-    const data = Array.isArray(sourceBookings) ? sourceBookings : [];
-    const modalTitle = modal.querySelector(".fpb-modal-head span");
-    const modalBody = modal.querySelector(".fpb-modal-body");
-    const closeBtn = modal.querySelector(".fpb-modal-close");
+    const modalTitle =
+      modal.querySelector(".fpb-modal-head span") ||
+      modal.querySelector(".sb-modal-head span");
+    const modalBody =
+      modal.querySelector(".fpb-modal-body") ||
+      modal.querySelector(".sb-modal-body");
+    const closeBtn =
+      modal.querySelector(".fpb-modal-close") ||
+      modal.querySelector(".sb-modal-close");
 
     function closeModal() {
       modal.style.display = "none";
@@ -167,11 +171,26 @@
       if (e.target === modal) closeModal();
     });
 
-    document.querySelectorAll(".fpb-btn-view").forEach((btn) => {
+    document.querySelectorAll(".fpb-btn-view, .sb-btn-view").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.id;
+        // Look up booking data at click time, not binding time
+        const sourceBookings = window.fpbBookings || window.sbBookings;
+        const data = Array.isArray(sourceBookings) ? sourceBookings : [];
         const b = data.find((x) => String(x.id) === String(id));
-        if (!b || !modalTitle || !modalBody) return;
+        if (!b || !modalTitle || !modalBody) {
+          console.warn(
+            "[SnapBook] View button: missing booking data, modal, or selectors",
+            {
+              bookingFound: !!b,
+              id,
+              dataLength: data.length,
+              modalTitle: !!modalTitle,
+              modalBody: !!modalBody,
+            },
+          );
+          return;
+        }
 
         const rows = [
           ["Client", b.client_name],
@@ -226,6 +245,37 @@
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "");
+    });
+  }
+
+  function bindSettingsForm() {
+    const form = document.getElementById("fpb-settings-form");
+    if (!form) return;
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const data = formToObject(form);
+
+      post("fpb_admin_save_settings", data)
+        .then((res) => {
+          if (!res.success) {
+            setMsg(
+              "fpb-settings-msg",
+              (res.data && res.data.message) || "Save failed.",
+              false,
+            );
+            return;
+          }
+
+          setMsg("fpb-settings-msg", "Settings saved.", true);
+        })
+        .catch(() => {
+          setMsg(
+            "fpb-settings-msg",
+            "Network or server error. Please try again.",
+            false,
+          );
+        });
     });
   }
 
@@ -348,6 +398,7 @@
   bindBookingStatusUpdate();
   bindBookingModal();
   bindSessionSlugHelper();
+  bindSettingsForm();
   bindCrudForm(
     "fpb-session-form",
     "fpb_admin_save_session",

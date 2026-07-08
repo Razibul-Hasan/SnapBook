@@ -63,6 +63,23 @@ if (!function_exists('sb_migrate_emoji')) {
     }
 }
 
+if (!function_exists('sb_get_currency_symbol')) {
+    function sb_get_currency_symbol()
+    {
+        if (class_exists('WooCommerce') && function_exists('get_woocommerce_currency')) {
+            $code = get_woocommerce_currency();
+            if (function_exists('get_woocommerce_currency_symbol')) {
+                $symbol = get_woocommerce_currency_symbol($code);
+                if (! empty($symbol)) {
+                    return $symbol;
+                }
+            }
+        }
+
+        return get_option('fpb_currency_sym', '€');
+    }
+}
+
 /**
  * Show an admin notice with an install/activate link when WooCommerce is missing.
  */

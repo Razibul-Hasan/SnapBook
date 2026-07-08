@@ -22,7 +22,7 @@ function sb_ajax_get_data()
         'sessions' => $sessions,
         'packages' => $packages,
         'addons'   => $addons,
-        'currency' => get_option('fpb_currency_sym', '€'),
+        'currency' => sb_get_currency_symbol(),
         'depositPct' => (int) get_option('fpb_deposit_pct', 50),
     ]);
 }
@@ -101,10 +101,9 @@ function sb_ajax_add_to_cart()
         wp_send_json_error(['message' => __('Booking product not configured. Please contact support.', 'snapbook')]);
     }
 
-    $cur     = get_option('fpb_currency_sym', '€');
-    $dep_pct = (int) get_option('fpb_deposit_pct', 50);
+    $cur     = sb_get_currency_symbol();
     $total   = floatval(wp_unslash($_POST['total_raw'] ?? 0));
-    $deposit = round($total * $dep_pct / 100, 2);
+    $deposit = $total;
 
     $booking = [
         'product_id'    => $product_id,
@@ -127,8 +126,12 @@ function sb_ajax_add_to_cart()
         'currency'      => $cur,
     ];
 
-    if (! is_email($booking['client_email'])) {
-        wp_send_json_error(['message' => __('Invalid email address.', 'snapbook')]);
+    if (empty($booking['package_name'])) {
+        wp_send_json_error(['message' => __('Please select a package before checkout.', 'snapbook')]);
+    }
+
+    if (empty($booking['session_date'])) {
+        wp_send_json_error(['message' => __('Please choose a session date before checkout.', 'snapbook')]);
     }
 
     // Save booking to a short-lived transient so the normal page request can
@@ -233,6 +236,22 @@ function sb_ajax_submit()
 /* ═══════════════════════════════════════════════════════════════
    ADMIN — CRUD: Session Types
 ═══════════════════════════════════════════════════════════════ */
+add_action('wp_ajax_fpb_admin_save_settings', 'fpb_admin_save_settings');
+
+function fpb_admin_save_settings()
+{
+    check_ajax_referer('fpb_settings', 'fpb_settings_nonce');
+    if (! current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Permission denied.']);
+    }
+
+    foreach (['fpb_step1_title', 'fpb_step1_sub'] as $key) {
+        update_option($key, sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
+    }
+
+    wp_send_json_success();
+}
+
 add_action('wp_ajax_fpb_admin_save_session',   'fpb_admin_save_session');
 add_action('wp_ajax_fpb_admin_delete_session', 'fpb_admin_delete_session');
 

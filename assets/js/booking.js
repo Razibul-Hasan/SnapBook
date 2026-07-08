@@ -107,8 +107,9 @@
       selectedPkg = null;
       showAddons(false);
       showDateSec(false);
-      chosenDate = null;
-      setTxt("fpb-selDate", "");
+      if (chosenDate) {
+        setTxt("fpb-selDate", "Selected: " + chosenDate);
+      }
       renderPackages();
     }
 
@@ -299,9 +300,7 @@
             ? cur + "0"
             : "\u2014";
     if (totEl) totEl.textContent = cur + total.toFixed(0);
-    if (depEl)
-      depEl.textContent =
-        "Deposit " + dep + "% \u2014 " + cur + deposit.toFixed(0);
+    if (depEl) depEl.textContent = "Due today \u2014 " + cur + total.toFixed(0);
     sum.style.display = "";
   }
 
@@ -426,7 +425,8 @@
       return;
     }
     clearErr("fpb-s1err");
-    bkGo(2);
+    collectAddons();
+    proceedToCheckout();
   }
 
   function s2Next() {
@@ -587,15 +587,11 @@
         addons_label: addonsLabel,
         addons_total: addonsTotal,
         total_raw: total,
-        client_name: val("fpb-fname"),
-        client_email: val("fpb-femail"),
-        client_phone: val("fpb-fphone"),
-        client_country: val("fpb-fcountry"),
         session_date: chosenDate || "",
-        session_time: val("fpb-ftime"),
-        location_pref: val("fpb-floc"),
-        notes: val("fpb-fnotes"),
-        signer_name: val("fpb-fsigner"),
+        session_time: "",
+        location_pref: "",
+        notes: "",
+        signer_name: "",
       })
         .then((r) => {
           if (r.success) {
