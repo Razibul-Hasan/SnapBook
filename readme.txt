@@ -18,6 +18,7 @@ SnapBook is a complete booking solution for photography studios. It provides a m
 
 * Multi-step booking form via shortcode `[snapbook]`
 * Gutenberg-friendly block pattern that inserts the native Shortcode block
+* Elementor widget for inserting the booking form
 * Session types, packages, and add-ons management
 * Date slot calendar (available / booked / blocked)
 * WooCommerce integration for deposit payments
@@ -29,7 +30,7 @@ SnapBook is a complete booking solution for photography studios. It provides a m
 
 1. Upload the `snapbook` folder to the `/wp-content/plugins/` directory.
 2. Activate the plugin through the **Plugins** menu in WordPress.
-3. Navigate to **FP Booking → Settings** to configure WhatsApp number, deposit percentage, and currency.
+3. Navigate to **SnapBook → Settings** to configure the notification email, WhatsApp number, booking page, appearance colors, and checkout/payment options. (Currency is taken automatically from WooCommerce.)
 4. Add the shortcode `[snapbook]` to any page.
 
 == Frequently Asked Questions ==
@@ -44,7 +45,7 @@ Use the shortcode `[snapbook]` on any page or post.
 
 = Can I block specific dates? =
 
-Yes. Go to **FP Booking → Date Slots** and click on any future date to toggle it between Available, Booked, and Blocked.
+Yes. Go to **SnapBook → Date Slots** and click on any future date to toggle it between Available, Booked, and Blocked.
 
 == Screenshots ==
 
