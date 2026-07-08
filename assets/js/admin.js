@@ -10,7 +10,13 @@
     const fd = new FormData();
     fd.append("action", action);
     fd.append("nonce", nonce);
-    Object.entries(data || {}).forEach(([k, v]) => fd.append(k, v));
+    Object.entries(data || {}).forEach(([k, v]) => {
+      if (Array.isArray(v)) {
+        v.forEach((item) => fd.append(k, item));
+      } else {
+        fd.append(k, v);
+      }
+    });
 
     return fetch(ajaxUrl, { method: "POST", body: fd })
       .then((r) => {
@@ -44,11 +50,61 @@
     el.className = "fpb-form-msg " + (ok ? "ok" : "err");
   }
 
+  // Copy text to the clipboard, with a fallback for plain-HTTP admin where
+  // navigator.clipboard is unavailable. Calls done(true|false).
+  function copyToClipboard(text, done) {
+    const cb = typeof done === "function" ? done : function () {};
+    function fallback() {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.top = "-1000px";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (_e) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      cb(ok);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(
+        () => cb(true),
+        fallback,
+      );
+    } else {
+      fallback();
+    }
+  }
+
+  function formatStatusLabel(status) {
+    if (String(status) === "pending") {
+      return "Pending Payment";
+    }
+    if (String(status) === "confirmed") {
+      return "Processing";
+    }
+    return String(status)
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+  }
+
   function formToObject(form) {
     const fd = new FormData(form);
     const data = {};
     fd.forEach((value, key) => {
-      data[key] = value;
+      if (key.endsWith("[]")) {
+        // Multi-value fields (e.g. multi-selects) are kept as arrays.
+        if (!Array.isArray(data[key])) data[key] = [];
+        data[key].push(value);
+      } else {
+        data[key] = value;
+      }
     });
     return data;
   }
@@ -59,6 +115,9 @@
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
+      // Sync TinyMCE editors (visual mode) back to their textareas so
+      // FormData picks up the rich-text content.
+      if (window.tinymce) window.tinymce.triggerSave();
       const data = formToObject(form);
 
       (checkboxNames || []).forEach((name) => {
@@ -82,6 +141,33 @@
         .catch(() => {
           setMsg(msgId, "Network or server error. Please try again.", false);
         });
+    });
+  }
+
+  // Add-on "Applies To" checklist: "All Packages" and individual package
+  // ticks are mutually exclusive; unticking everything falls back to "All".
+  function bindPackageChecklist() {
+    const list = document.getElementById("fpb-addon-pkg-list");
+    if (!list) return;
+    const boxes = Array.from(list.querySelectorAll('input[type="checkbox"]'));
+    const allBox = boxes.find((b) => b.value === "0");
+    if (!allBox) return;
+
+    list.addEventListener("change", (e) => {
+      const target = e.target;
+      if (!target || target.type !== "checkbox") return;
+
+      if (target === allBox && allBox.checked) {
+        boxes.forEach((b) => {
+          if (b !== allBox) b.checked = false;
+        });
+      } else if (target !== allBox && target.checked) {
+        allBox.checked = false;
+      }
+
+      if (!boxes.some((b) => b.checked)) {
+        allBox.checked = true;
+      }
     });
   }
 
@@ -112,20 +198,191 @@
     });
   }
 
+  // Packages list: copy the shareable ?package= link and reveal it in a
+  // read-only field so it can also be grabbed manually.
+  function bindPackageLinkCopy() {
+    document.querySelectorAll(".fpb-copy-link").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const url = btn.dataset.link || "";
+        if (!url) return;
+
+        const cell = btn.closest("td");
+        const wrap = cell ? cell.querySelector(".fpb-share-link") : null;
+        const field = wrap ? wrap.querySelector(".fpb-share-link-field") : null;
+        if (wrap) wrap.hidden = false;
+
+        function flash(text) {
+          if (btn.dataset.copyTimer) {
+            clearTimeout(parseInt(btn.dataset.copyTimer, 10));
+          }
+          if (!btn.dataset.orig) btn.dataset.orig = btn.textContent;
+          btn.textContent = text;
+          btn.dataset.copyTimer = String(
+            setTimeout(() => {
+              btn.textContent = btn.dataset.orig;
+              delete btn.dataset.copyTimer;
+            }, 2000),
+          );
+        }
+
+        function fallbackCopy() {
+          // Plain-HTTP admin has no navigator.clipboard — select the
+          // read-only field and use the legacy copy command.
+          let ok = false;
+          if (field) {
+            field.focus();
+            field.select();
+            try {
+              ok = document.execCommand("copy");
+            } catch (_e) {
+              ok = false;
+            }
+          }
+          flash(ok ? "Copied ✓" : "Press Ctrl+C to copy");
+        }
+
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard
+            .writeText(url)
+            .then(() => flash("Copied ✓"))
+            .catch(fallbackCopy);
+        } else {
+          fallbackCopy();
+        }
+      });
+    });
+  }
+
+  function bindRowActionMenus() {
+    const toggles = document.querySelectorAll(".fpb-row-actions-toggle");
+    if (!toggles.length) return;
+
+    function positionMenu(toggle, menu) {
+      if (!menu || menu.hidden) return;
+
+      menu.classList.remove("fpb-row-actions-menu--up");
+      const viewportWidth =
+        window.innerWidth || document.documentElement.clientWidth;
+      const viewportHeight =
+        window.innerHeight || document.documentElement.clientHeight;
+      const toggleRect = toggle.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+
+      let left = Math.round(toggleRect.right - menuRect.width);
+      const minLeft = 8;
+      const maxLeft = Math.max(minLeft, viewportWidth - menuRect.width - 8);
+      if (left < minLeft) left = minLeft;
+      if (left > maxLeft) left = maxLeft;
+
+      let top = Math.round(toggleRect.bottom + 6);
+      if (top + menuRect.height > viewportHeight - 8) {
+        menu.classList.add("fpb-row-actions-menu--up");
+        top = Math.round(toggleRect.top - menuRect.height - 6);
+      }
+      if (top < 8) {
+        top = 8;
+      }
+
+      menu.style.left = left + "px";
+      menu.style.top = top + "px";
+    }
+
+    function repositionOpenMenus() {
+      document.querySelectorAll(".fpb-row-actions-toggle").forEach((btn) => {
+        if (btn.getAttribute("aria-expanded") !== "true") return;
+        const menuId = btn.getAttribute("aria-controls") || "";
+        const menu = menuId ? document.getElementById(menuId) : null;
+        if (menu) {
+          positionMenu(btn, menu);
+        }
+      });
+    }
+
+    function closeMenu(btn) {
+      const menuId = btn.getAttribute("aria-controls") || "";
+      const menu = menuId ? document.getElementById(menuId) : null;
+      btn.setAttribute("aria-expanded", "false");
+      if (menu) {
+        menu.hidden = true;
+        menu.style.left = "";
+        menu.style.top = "";
+      }
+    }
+
+    function closeAll(exceptToggle) {
+      document.querySelectorAll(".fpb-row-actions-toggle").forEach((btn) => {
+        if (exceptToggle && btn === exceptToggle) return;
+        closeMenu(btn);
+      });
+    }
+
+    toggles.forEach((toggle) => {
+      const menuId = toggle.getAttribute("aria-controls") || "";
+      const menu = menuId ? document.getElementById(menuId) : null;
+      if (!menu) return;
+
+      toggle.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const open = toggle.getAttribute("aria-expanded") === "true";
+        closeAll(toggle);
+        toggle.setAttribute("aria-expanded", open ? "false" : "true");
+        menu.hidden = open;
+        if (!open) {
+          positionMenu(toggle, menu);
+        }
+      });
+
+      menu.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+    });
+
+    document.addEventListener("click", () => closeAll());
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeAll();
+      }
+    });
+
+    window.addEventListener("resize", repositionOpenMenus);
+    window.addEventListener("scroll", repositionOpenMenus, true);
+  }
+
   function bindBookingStatusUpdate() {
     document
       .querySelectorAll(".fpb-status-select, .sb-status-select")
       .forEach((sel) => {
+        const row = sel.closest("tr");
+        const hintEl = row ? row.querySelector(".fpb-status-hint") : null;
+        const dueOrderId = parseInt(sel.dataset.dueOrderId || "0", 10);
+        const targetOrderId = parseInt(sel.dataset.targetOrderId || "0", 10);
+        const targetLabel = dueOrderId > 0 ? "Balance order" : "Main order";
+
         sel.addEventListener("change", function () {
           const id = this.dataset.id;
           const status = this.value;
+          const previousValue = this.dataset.prevValue || this.value;
+
+          this.disabled = true;
+          if (hintEl) {
+            hintEl.classList.remove("ok", "err");
+            hintEl.textContent = "Saving...";
+          }
 
           post("fpb_admin_update_booking_status", { id, status })
             .then((res) => {
               if (!res.success) {
+                this.value = previousValue;
+                if (hintEl) {
+                  hintEl.classList.add("err");
+                  hintEl.textContent = "Could not update status.";
+                }
                 window.alert("Could not update status.");
                 return;
               }
+
+              this.dataset.prevValue = status;
               const badge =
                 this.closest("tr")?.querySelector(".fpb-badge") ||
                 this.closest("tr")?.querySelector(".sb-badge");
@@ -135,15 +392,300 @@
                     ? "sb-badge"
                     : "fpb-badge";
                 badge.className = base + " " + base + "-" + status;
-                badge.textContent =
-                  status.charAt(0).toUpperCase() + status.slice(1);
+                badge.textContent = formatStatusLabel(status);
+              }
+
+              const data = res.data || {};
+              const rowEl = this.closest("tr");
+              if (rowEl) {
+                const mainOrderId = parseInt(data.main_order_id || 0, 10);
+                const dueOrderId = parseInt(data.due_order_id || 0, 10);
+                const mainOrderStatus = String(data.main_order_status || "");
+                const dueOrderStatus = String(data.due_order_status || "");
+
+                if (mainOrderId > 0 && mainOrderStatus) {
+                  const mainSel = rowEl.querySelector(
+                    '.fpb-order-status-select[data-order-id="' +
+                      mainOrderId +
+                      '"]',
+                  );
+                  if (mainSel) {
+                    mainSel.value = mainOrderStatus;
+                    mainSel.dataset.prevValue = mainOrderStatus;
+                  }
+                }
+
+                if (dueOrderId > 0 && dueOrderStatus) {
+                  const dueSel = rowEl.querySelector(
+                    '.fpb-order-status-select[data-order-id="' +
+                      dueOrderId +
+                      '"]',
+                  );
+                  if (dueSel) {
+                    dueSel.value = dueOrderStatus;
+                    dueSel.dataset.prevValue = dueOrderStatus;
+                  }
+                }
+              }
+
+              if (hintEl) {
+                hintEl.classList.remove("err");
+                hintEl.classList.add("ok");
+                hintEl.textContent =
+                  targetOrderId > 0
+                    ? targetLabel + " #" + targetOrderId + " updated"
+                    : "Booking status updated";
               }
             })
             .catch(() => {
+              this.value = previousValue;
+              if (hintEl) {
+                hintEl.classList.add("err");
+                hintEl.textContent = "Network error while saving.";
+              }
               window.alert("Network error. Could not update status.");
+            })
+            .finally(() => {
+              this.disabled = false;
             });
         });
+
+        sel.dataset.prevValue = sel.value;
       });
+  }
+
+  function bindQuickPaymentActions() {
+    document.querySelectorAll(".fpb-quick-status").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const row = btn.closest("tr");
+        if (!row) return;
+
+        const select =
+          row.querySelector(".sb-status-select") ||
+          row.querySelector(".fpb-status-select");
+        if (!select) return;
+
+        const nextStatus = btn.dataset.status || "";
+        if (!nextStatus || select.value === nextStatus) return;
+
+        select.value = nextStatus;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
+  }
+
+  function bindWooOrderStatusControls() {
+    document.querySelectorAll(".fpb-order-status-select").forEach((sel) => {
+      const previous = sel.value;
+      sel.dataset.prevValue = previous;
+
+      sel.addEventListener("change", function () {
+        const orderId = this.dataset.orderId || "0";
+        const status = this.value;
+        const prevValue = this.dataset.prevValue || this.value;
+
+        this.disabled = true;
+        post("fpb_admin_update_wc_order_status", { order_id: orderId, status })
+          .then((res) => {
+            if (!res.success) {
+              this.value = prevValue;
+              window.alert(
+                (res.data && res.data.message) ||
+                  "Could not update WooCommerce order status.",
+              );
+              return;
+            }
+
+            this.dataset.prevValue = status;
+
+            // Update badge and hint in the same row (no reload)
+            const row = this.closest("tr");
+            const badge =
+              row?.querySelector(".fpb-badge") ||
+              row?.querySelector(".sb-badge");
+            if (badge) {
+              const base =
+                badge.className.indexOf("sb-badge") !== -1
+                  ? "sb-badge"
+                  : "fpb-badge";
+              badge.className = base + " " + base + "-" + status;
+              badge.textContent = formatStatusLabel(status);
+            }
+            const hintEl = row ? row.querySelector(".fpb-status-hint") : null;
+            if (hintEl) {
+              hintEl.classList.remove("err");
+              hintEl.classList.add("ok");
+              hintEl.textContent = "Order #" + orderId + " updated";
+            }
+          })
+          .catch(() => {
+            this.value = prevValue;
+            window.alert("Network error. Could not update WooCommerce order.");
+          })
+          .finally(() => {
+            this.disabled = false;
+          });
+      });
+    });
+  }
+
+  // Row-action "Copy Payment Link" — copies the balance order's pay URL.
+  function bindBalancePayLinkCopy() {
+    document.querySelectorAll(".fpb-copy-pay-link").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const link = btn.dataset.link || "";
+        if (!link) return;
+        if (!btn.dataset.orig) btn.dataset.orig = btn.textContent;
+        if (btn.dataset.copyTimer) clearTimeout(parseInt(btn.dataset.copyTimer, 10));
+        copyToClipboard(link, (ok) => {
+          btn.textContent = ok ? "Link copied ✓" : "Press Ctrl+C to copy";
+          btn.dataset.copyTimer = String(
+            setTimeout(() => {
+              btn.textContent = btn.dataset.orig;
+              delete btn.dataset.copyTimer;
+            }, 2000),
+          );
+        });
+      });
+    });
+  }
+
+  function bindBalanceReminderButtons() {
+    document.querySelectorAll(".fpb-send-balance-reminder").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.id || "0";
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Sending...";
+
+        post("fpb_admin_send_balance_reminder", { id })
+          .then((res) => {
+            if (!res.success) {
+              window.alert(
+                (res.data && res.data.message) || "Could not send reminder.",
+              );
+              btn.disabled = false;
+              btn.textContent = originalText;
+              return;
+            }
+
+            btn.textContent = "Reminder sent";
+          })
+          .catch(() => {
+            window.alert("Network error. Could not send reminder.");
+            btn.disabled = false;
+            btn.textContent = originalText;
+          });
+      });
+    });
+  }
+
+  // Booking View modal — payment panel for partial (deposit) bookings.
+  function renderPaymentPanelHtml(pay, bookingId) {
+    if (!pay || !pay.is_partial) return "";
+
+    const cur = String(pay.currency || "");
+    const money = (amount) => escHtml(cur) + Number(amount || 0).toFixed(2);
+    const balancePaid = !!pay.balance_paid;
+    const statusLabel = balancePaid
+      ? "Paid"
+      : pay.due_status_label || "Pending";
+    const pct = pay.pct ? " (" + pay.pct + "%)" : "";
+
+    let actions = "";
+    if (!balancePaid && pay.pay_link) {
+      actions +=
+        '<button type="button" class="button button-primary fpb-modal-copy-link" data-link="' +
+        escHtml(pay.pay_link) +
+        '">Copy Payment Link</button>';
+      actions +=
+        '<button type="button" class="button fpb-modal-send-email" data-id="' +
+        escHtml(String(bookingId)) +
+        '">Send Balance Email</button>';
+    }
+    if (pay.edit_link) {
+      actions +=
+        '<a class="button fpb-modal-open-order" href="' +
+        escHtml(pay.edit_link) +
+        '" target="_blank" rel="noopener">Open Balance Order</a>';
+    }
+
+    return (
+      '<div class="fpb-modal-pay">' +
+      '<div class="fpb-modal-pay-head">Payment</div>' +
+      '<div class="fpb-modal-pay-grid">' +
+      '<div class="fpb-modal-pay-cell"><span>Total</span><strong>' +
+      money(pay.total) +
+      "</strong></div>" +
+      '<div class="fpb-modal-pay-cell"><span>Deposit paid' +
+      pct +
+      "</span><strong>" +
+      money(pay.deposit) +
+      "</strong></div>" +
+      '<div class="fpb-modal-pay-cell"><span>Balance</span><strong class="' +
+      (balancePaid ? "fpb-bal-paid" : "fpb-bal-due") +
+      '">' +
+      money(pay.balance) +
+      " · " +
+      escHtml(statusLabel) +
+      "</strong></div>" +
+      "</div>" +
+      (actions
+        ? '<div class="fpb-modal-pay-actions">' + actions + "</div>"
+        : "") +
+      '<p class="fpb-modal-pay-msg" aria-live="polite"></p>' +
+      "</div>"
+    );
+  }
+
+  function bindModalPaymentActions(container) {
+    if (!container) return;
+    const msg = container.querySelector(".fpb-modal-pay-msg");
+    function say(text, ok) {
+      if (!msg) return;
+      msg.textContent = text;
+      msg.className = "fpb-modal-pay-msg " + (ok ? "ok" : "err");
+    }
+
+    const copyBtn = container.querySelector(".fpb-modal-copy-link");
+    if (copyBtn) {
+      copyBtn.addEventListener("click", () => {
+        copyToClipboard(copyBtn.dataset.link || "", (ok) => {
+          say(
+            ok
+              ? "Payment link copied to clipboard."
+              : "Could not copy — use Open Balance Order to grab the link.",
+            ok,
+          );
+        });
+      });
+    }
+
+    const emailBtn = container.querySelector(".fpb-modal-send-email");
+    if (emailBtn) {
+      emailBtn.addEventListener("click", () => {
+        const bid = emailBtn.dataset.id || "0";
+        const orig = emailBtn.textContent;
+        emailBtn.disabled = true;
+        emailBtn.textContent = "Sending…";
+        post("fpb_admin_send_balance_reminder", { id: bid })
+          .then((res) => {
+            if (res.success) {
+              say("Balance email sent to the customer.", true);
+              emailBtn.textContent = "Email sent ✓";
+            } else {
+              say((res.data && res.data.message) || "Could not send email.", false);
+              emailBtn.textContent = orig;
+              emailBtn.disabled = false;
+            }
+          })
+          .catch(() => {
+            say("Network error. Could not send email.", false);
+            emailBtn.textContent = orig;
+            emailBtn.disabled = false;
+          });
+      });
+    }
   }
 
   function bindBookingModal() {
@@ -192,35 +734,87 @@
           return;
         }
 
-        const rows = [
-          ["Client", b.client_name],
-          ["Email", b.client_email],
-          ["Phone", b.client_phone],
-          ["Country", b.client_country],
-          ["Session", b.session_type],
-          ["Package", b.package_name],
-          ["Add-ons", b.addons_json || "-"],
-          ["Date", b.session_date || "-"],
-          ["Time", b.session_time || "-"],
-          ["Location", b.location_pref || "-"],
-          ["Total", b.total || "0"],
-          ["Deposit", b.deposit || "0"],
-          ["Status", b.status || "pending"],
-          ["WC Order", b.order_id ? "#" + b.order_id : "-"],
-          ["Notes", b.notes || "-"],
-          ["Signed by", b.signer_name || "-"],
+        const rows = [];
+
+        const checkoutFields =
+          b.checkout_fields && typeof b.checkout_fields === "object"
+            ? b.checkout_fields
+            : {};
+        const checkoutFieldLabels = {
+          billing_first_name: "First Name",
+          billing_last_name: "Last Name",
+          billing_company: "Company",
+          billing_country: "Country Code",
+          billing_country_name: "Country",
+          billing_state: "State",
+          billing_city: "City",
+          billing_postcode: "Postcode",
+          billing_address_1: "Address 1",
+          billing_address_2: "Address 2",
+          billing_phone: "Phone",
+          billing_email: "Email",
+          billing_event_date: "Event Date",
+          billing_event_time: "Event Time",
+          billing_hotel_place: "Hotel / Place",
+          billing_participants: "Participants",
+          billing_room_number: "Room Number",
+          billing_stay_period: "Stay Period",
+          order_customer_note: "Order Note",
+        };
+
+        const checkoutFieldOrder = [
+          "billing_first_name",
+          "billing_last_name",
+          "billing_company",
+          "billing_country_name",
+          "billing_country",
+          "billing_state",
+          "billing_city",
+          "billing_postcode",
+          "billing_address_1",
+          "billing_address_2",
+          "billing_phone",
+          "billing_email",
+          "billing_event_date",
+          "billing_event_time",
+          "billing_hotel_place",
+          "billing_participants",
+          "billing_room_number",
+          "billing_stay_period",
+          "order_customer_note",
         ];
 
-        modalBody.innerHTML = rows
-          .map(
-            ([k, v]) =>
-              '<div class="fpb-modal-row"><span class="fpb-modal-label">' +
-              escHtml(k) +
-              '</span><span class="fpb-modal-val">' +
-              escHtml(String(v)) +
-              "</span></div>",
-          )
-          .join("");
+        checkoutFieldOrder.forEach((key) => {
+          const value = checkoutFields[key];
+          rows.push([checkoutFieldLabels[key] || key, value || "-"]);
+        });
+
+        Object.keys(checkoutFields)
+          .filter((key) => !checkoutFieldOrder.includes(key))
+          .forEach((key) => {
+            const value = checkoutFields[key];
+            rows.push([key, value || "-"]);
+          });
+
+        if (!rows.length) {
+          rows.push(["Checkout", "No checkout field data found."]);
+        }
+
+        const paymentHtml = renderPaymentPanelHtml(b.fpb_payment, id);
+        modalBody.innerHTML =
+          paymentHtml +
+          rows
+            .map(
+              ([k, v]) =>
+                '<div class="fpb-modal-row"><span class="fpb-modal-label">' +
+                escHtml(k) +
+                '</span><span class="fpb-modal-val">' +
+                escHtml(String(v)) +
+                "</span></div>",
+            )
+            .join("");
+
+        bindModalPaymentActions(modalBody.querySelector(".fpb-modal-pay"));
 
         modalTitle.textContent = "Booking #" + id;
         modal.style.display = "flex";
@@ -245,6 +839,34 @@
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "");
+    });
+  }
+
+  function bindCheckoutFieldBuilder() {
+    const addBtn = document.getElementById("fpb-ccf-add");
+    const rows = document.getElementById("fpb-ccf-rows");
+    const tpl = document.getElementById("fpb-ccf-row-template");
+    if (!addBtn || !rows || !tpl) return;
+
+    let counter = 0;
+    addBtn.addEventListener("click", () => {
+      counter++;
+      const key = "new_" + Date.now() + "_" + counter;
+      const holder = document.createElement("tbody");
+      holder.innerHTML = tpl.innerHTML.replace(/__KEY__/g, key).trim();
+      const row = holder.firstElementChild;
+      if (row) {
+        rows.appendChild(row);
+        const labelInput = row.querySelector('input[type="text"]');
+        if (labelInput) labelInput.focus();
+      }
+    });
+
+    rows.addEventListener("click", (e) => {
+      const btn = e.target.closest(".fpb-ccf-remove");
+      if (!btn) return;
+      const row = btn.closest("tr");
+      if (row) row.remove();
     });
   }
 
@@ -396,8 +1018,12 @@
   };
 
   bindBookingStatusUpdate();
+  bindRowActionMenus();
+  bindQuickPaymentActions();
+  bindWooOrderStatusControls();
   bindBookingModal();
   bindSessionSlugHelper();
+  bindCheckoutFieldBuilder();
   bindSettingsForm();
   bindCrudForm(
     "fpb-session-form",
@@ -414,8 +1040,12 @@
   bindCrudForm("fpb-addon-form", "fpb_admin_save_addon", "fpb-addon-msg", [
     "active",
   ]);
+  bindPackageChecklist();
   bindDeleteButtons(".fpb-del-session", "fpb_admin_delete_session");
   bindDeleteButtons(".fpb-del-package", "fpb_admin_delete_package");
+  bindPackageLinkCopy();
   bindDeleteButtons(".fpb-del-addon", "fpb_admin_delete_addon");
   bindDateSlotsCalendar();
+  bindBalanceReminderButtons();
+  bindBalancePayLinkCopy();
 })();

@@ -55,9 +55,9 @@ function sb_register_elementor_widget($widgets_manager)
                 ) {
                     echo '<style>
 .elementor-editor-active .fpb-wrap{max-width:100%;width:100%;}
-.elementor-editor-active .fpb-wrap .bklayout{grid-template-columns:1fr;gap:1.5rem;}
-.elementor-editor-active .fpb-wrap .pgrid{grid-template-columns:1fr;}
-.elementor-editor-active .fpb-wrap .fsteps{flex-wrap:wrap;gap:.5rem;}
+.elementor-editor-active .fpb-wrap .fpcards{grid-template-columns:1fr;}
+.elementor-editor-active .fpb-wrap .fadd-grid{grid-template-columns:1fr;}
+.elementor-editor-active .fpb-wrap .sbar2{flex-wrap:wrap;gap:.25rem;}
 </style>';
                 }
 

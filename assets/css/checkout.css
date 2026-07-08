@@ -9,40 +9,36 @@
 
 /* ─── Two-column layout ─── */
 .woocommerce form.checkout {
-  display: grid !important;
-  grid-template-columns: minmax(0, 56%) minmax(280px, 1fr) !important;
-  grid-template-areas:
-    "customer order-heading"
-    "customer order-review"
-    "customer order-review" !important;
-  column-gap: 2.5rem !important;
-  row-gap: 0.6rem !important;
-  align-items: start !important;
+  display: block !important;
   float: none !important;
   width: 100% !important;
 }
 
+.woocommerce form.checkout::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+
 /* Left: Billing Details */
 .woocommerce form.checkout #customer_details {
-  grid-area: customer !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  float: none !important;
-  clear: both !important;
+  width: 56% !important;
+  max-width: 56% !important;
+  float: left !important;
+  clear: left !important;
   min-width: 0;
 }
 
 /* Right: Order Review */
 .woocommerce form.checkout #order_review {
-  grid-area: order-review !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  float: none !important;
-  clear: both !important;
+  width: calc(44% - 2.5rem) !important;
+  max-width: calc(44% - 2.5rem) !important;
+  float: right !important;
+  clear: right !important;
   position: sticky;
   top: 2rem;
+  margin-top: 0 !important;
   min-width: 280px;
-  align-self: start;
 }
 
 /* col-1 and col-2 inside customer_details: make col-1 full width, hide col-2 if empty */
@@ -76,13 +72,11 @@
 /* YOUR ORDER heading: full-width block above the table */
 .woocommerce #order_review_heading,
 h3#order_review_heading {
-  grid-area: order-heading !important;
-  align-self: end;
   display: block !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  float: none !important;
-  clear: both !important;
+  width: calc(44% - 2.5rem) !important;
+  max-width: calc(44% - 2.5rem) !important;
+  float: right !important;
+  clear: right !important;
   white-space: nowrap;
   font-size: 1.6rem;
   letter-spacing: 0.14em;
@@ -107,24 +101,6 @@ h3#order_review_heading {
   float: none !important;
   clear: both !important;
   width: 100% !important;
-}
-
-/* Fallback for themes/browsers where grid is disabled or overridden. */
-@supports not (display: grid) {
-  .woocommerce form.checkout {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    gap: 2.5rem !important;
-  }
-  .woocommerce form.checkout #customer_details {
-    flex: 0 0 56% !important;
-    max-width: 56% !important;
-  }
-  .woocommerce #order_review_heading,
-  h3#order_review_heading,
-  .woocommerce form.checkout #order_review {
-    flex: 1 1 auto !important;
-  }
 }
 
 /* ─── Form rows ─── */
@@ -483,21 +459,25 @@ h3#order_review_heading {
 @media (max-width: 900px) {
   .woocommerce form.checkout {
     display: block !important;
-    gap: 1.5rem !important;
   }
   .woocommerce form.checkout #customer_details {
-    grid-area: auto !important;
     width: 100% !important;
     max-width: 100% !important;
+    float: none !important;
+    clear: both !important;
   }
   .woocommerce #order_review_heading,
   h3#order_review_heading {
-    grid-area: auto !important;
-  }
-  .woocommerce form.checkout #order_review {
-    grid-area: auto !important;
     width: 100% !important;
     max-width: 100% !important;
+    float: none !important;
+    clear: both !important;
+  }
+  .woocommerce form.checkout #order_review {
+    width: 100% !important;
+    max-width: 100% !important;
+    float: none !important;
+    clear: both !important;
     position: static;
     min-width: 0;
   }

@@ -1,6 +1,32 @@
 <?php
 defined('ABSPATH') || exit;
 
+function fpb_get_partial_block_days()
+{
+    return max(0, (int) get_option('fpb_partial_block_days', 0));
+}
+
+function fpb_can_use_partial_payment_for_date($session_date)
+{
+    $session_date = sanitize_text_field((string) $session_date);
+    if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $session_date)) {
+        return false;
+    }
+
+    $block_days = fpb_get_partial_block_days();
+    if ($block_days <= 0) {
+        return true;
+    }
+
+    $parts = explode('-', $session_date);
+    $event_dt = new DateTimeImmutable('now', wp_timezone());
+    $event_dt = $event_dt->setDate((int) $parts[0], (int) $parts[1], (int) $parts[2])->setTime(0, 0, 0);
+    $today_dt = new DateTimeImmutable('today', wp_timezone());
+
+    $days_until = (int) floor(($event_dt->getTimestamp() - $today_dt->getTimestamp()) / DAY_IN_SECONDS);
+    return $days_until >= $block_days;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Load session types + packages + add-ons
 ═══════════════════════════════════════════════════════════════ */
@@ -15,15 +41,49 @@ function sb_ajax_get_data()
     $pfx = $wpdb->prefix . 'fpb_';
 
     $sessions = $wpdb->get_results("SELECT id, name, emoji, slug FROM {$pfx}sessions WHERE active=1 ORDER BY sort_order, id"); // phpcs:ignore
-    $packages = $wpdb->get_results("SELECT id, session_id, name, price, duration, description, featured FROM {$pfx}packages WHERE active=1 ORDER BY sort_order, id"); // phpcs:ignore
-    $addons   = $wpdb->get_results("SELECT id, name, price, emoji, description, package_id FROM {$pfx}addons WHERE active=1 ORDER BY sort_order, id"); // phpcs:ignore
+    $packages = $wpdb->get_results("SELECT id, session_id, name, slug, price, duration, description, featured FROM {$pfx}packages WHERE active=1 ORDER BY sort_order, id"); // phpcs:ignore
+    $addons   = $wpdb->get_results("SELECT id, name, price, emoji, description, package_id, package_ids FROM {$pfx}addons WHERE active=1 ORDER BY sort_order, id"); // phpcs:ignore
 
     wp_send_json_success([
         'sessions' => $sessions,
         'packages' => $packages,
         'addons'   => $addons,
         'currency' => sb_get_currency_symbol(),
-        'depositPct' => (int) get_option('fpb_deposit_pct', 50),
+        'depositPct' => ((int) get_option('fpb_enable_partial_payment', 1) === 1 ? 50 : 100),
+        'partialPaymentEnabled' => ((int) get_option('fpb_enable_partial_payment', 1) === 1),
+        'partialBlockDays' => fpb_get_partial_block_days(),
+        'partialOptionLabel' => get_option('fpb_partial_option_label', __('Book a slot to 50% Pay', 'snapbook')),
+    ]);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PUBLIC — Live payment preview for booking summary
+═══════════════════════════════════════════════════════════════ */
+add_action('wp_ajax_sb_preview_payment',        'sb_ajax_preview_payment');
+add_action('wp_ajax_nopriv_sb_preview_payment', 'sb_ajax_preview_payment');
+add_action('wp_ajax_fpb_preview_payment',        'sb_ajax_preview_payment');
+add_action('wp_ajax_nopriv_fpb_preview_payment', 'sb_ajax_preview_payment');
+function sb_ajax_preview_payment()
+{
+    check_ajax_referer('fpb_nonce', 'nonce');
+
+    $total = max(0, floatval(wp_unslash($_POST['total_raw'] ?? 0)));
+    $session_date = sanitize_text_field(wp_unslash($_POST['session_date'] ?? ''));
+    $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
+
+    $partial_enabled = ((int) get_option('fpb_enable_partial_payment', 1) === 1);
+    $is_eligible = $partial_enabled && fpb_can_use_partial_payment_for_date($session_date);
+    $pay_pct = ($partial_enabled && $use_deposit_requested && $is_eligible) ? 50 : 100;
+
+    $due_today = round(($total * $pay_pct) / 100, 2);
+    $balance_due = max(0, round($total - $due_today, 2));
+
+    wp_send_json_success([
+        'payPct' => $pay_pct,
+        'isEligible' => $is_eligible,
+        'dueToday' => $due_today,
+        'balanceDue' => $balance_due,
+        'total' => $total,
     ]);
 }
 
@@ -70,6 +130,8 @@ function sb_ajax_get_payment_gateways()
                 'id'          => sanitize_key($gateway->id),
                 'title'       => wp_kses_post($gateway->get_title()),
                 'description' => wp_kses_post($gateway->get_description()),
+                'icon'        => wp_kses_post($gateway->get_icon()),
+                'needs_payment_page' => ! sb_gateway_processes_offline($gateway),
             ];
         }
     }
@@ -101,9 +163,14 @@ function sb_ajax_add_to_cart()
         wp_send_json_error(['message' => __('Booking product not configured. Please contact support.', 'snapbook')]);
     }
 
-    $cur     = sb_get_currency_symbol();
-    $total   = floatval(wp_unslash($_POST['total_raw'] ?? 0));
-    $deposit = $total;
+    $cur      = sb_get_currency_symbol();
+    $total    = floatval(wp_unslash($_POST['total_raw'] ?? 0));
+    $partial_enabled = ((int) get_option('fpb_enable_partial_payment', 1) === 1);
+    $session_date = sanitize_text_field(wp_unslash($_POST['session_date'] ?? ''));
+    $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
+    $can_use_deposit = $partial_enabled && $use_deposit_requested && fpb_can_use_partial_payment_for_date($session_date);
+    $pay_pct  = $can_use_deposit ? 50 : 100;
+    $deposit  = round(($total * $pay_pct) / 100, 2);
 
     $booking = [
         'product_id'    => $product_id,
@@ -114,15 +181,22 @@ function sb_ajax_add_to_cart()
         'addons_total'  => floatval(wp_unslash($_POST['addons_total']  ?? 0)),
         'total'         => $total,
         'deposit'       => $deposit,
+        'deposit_pct'   => $pay_pct,
         'client_name'   => sanitize_text_field(wp_unslash($_POST['client_name']   ?? '')),
         'client_email'  => sanitize_email(wp_unslash($_POST['client_email']  ?? '')),
         'client_phone'  => sanitize_text_field(wp_unslash($_POST['client_phone']  ?? '')),
         'client_country' => sanitize_text_field(wp_unslash($_POST['client_country'] ?? '')),
-        'session_date'  => sanitize_text_field(wp_unslash($_POST['session_date']  ?? '')),
+        'session_date'  => $session_date,
         'session_time'  => sanitize_text_field(wp_unslash($_POST['session_time']  ?? '')),
         'location_pref' => sanitize_text_field(wp_unslash($_POST['location_pref'] ?? '')),
         'notes'         => sanitize_textarea_field(wp_unslash($_POST['notes']     ?? '')),
         'signer_name'   => sanitize_text_field(wp_unslash($_POST['signer_name']   ?? '')),
+        'address_1'     => sanitize_text_field(wp_unslash($_POST['address_1']     ?? '')),
+        'city'          => sanitize_text_field(wp_unslash($_POST['city']          ?? '')),
+        'postcode'      => sanitize_text_field(wp_unslash($_POST['postcode']      ?? '')),
+        'participants'  => sanitize_text_field(wp_unslash($_POST['participants']  ?? '')),
+        'room_number'   => sanitize_text_field(wp_unslash($_POST['room_number']   ?? '')),
+        'stay_period'   => sanitize_text_field(wp_unslash($_POST['stay_period']   ?? '')),
         'currency'      => $cur,
     ];
 
@@ -153,6 +227,13 @@ function sb_handle_checkout_redirect()
     $token = sanitize_text_field(wp_unslash($_GET['fpb_checkout'] ?? '')); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     if (! $token || ! class_exists('WooCommerce')) {
         return;
+    }
+
+    if ((int) get_option('fpb_require_account_booking', 0) === 1 && ! is_user_logged_in()) {
+        $return_url = add_query_arg('fpb_checkout', $token, home_url('/'));
+        $account_url = function_exists('wc_get_page_permalink') ? wc_get_page_permalink('myaccount') : wp_login_url();
+        wp_safe_redirect(add_query_arg('redirect', $return_url, $account_url));
+        exit;
     }
 
     $booking = get_transient('fpb_checkout_' . $token);
@@ -245,11 +326,66 @@ function fpb_admin_save_settings()
         wp_send_json_error(['message' => 'Permission denied.']);
     }
 
-    foreach (['fpb_step1_title', 'fpb_step1_sub'] as $key) {
+    foreach (['fpb_step1_title', 'fpb_step1_sub', 'fpb_balance_reminder_subject', 'fpb_partial_option_label', 'fpb_whatsapp', 'fpb_success_title', 'fpb_success_msg', 'fpb_whatsapp_btn', 'fpb_confirm_title', 'fpb_confirm_msg', 'fpb_confirm_pending_title', 'fpb_confirm_pending_msg'] as $key) {
         update_option($key, sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
+    }
+    update_option('fpb_admin_email', sanitize_email(wp_unslash($_POST['fpb_admin_email'] ?? '')) ?: get_option('admin_email'));
+    update_option('fpb_booking_page_id', absint(wp_unslash($_POST['fpb_booking_page_id'] ?? 0)));
+    if (function_exists('sb_sanitize_custom_checkout_fields')) {
+        update_option('fpb_checkout_custom_fields', sb_sanitize_custom_checkout_fields($_POST)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+    }
+    if (function_exists('sb_default_theme_colors')) {
+        $theme_defaults = sb_default_theme_colors();
+        update_option('fpb_theme_primary', sanitize_hex_color(wp_unslash($_POST['fpb_theme_primary'] ?? '')) ?: $theme_defaults['primary']);
+        update_option('fpb_theme_accent', sanitize_hex_color(wp_unslash($_POST['fpb_theme_accent'] ?? '')) ?: $theme_defaults['accent']);
+    }
+
+    update_option('fpb_enable_partial_payment', absint(wp_unslash($_POST['fpb_enable_partial_payment'] ?? 0)) === 1 ? 1 : 0);
+    update_option('fpb_partial_block_days', max(0, absint(wp_unslash($_POST['fpb_partial_block_days'] ?? 0))));
+    update_option('fpb_require_account_booking', absint(wp_unslash($_POST['fpb_require_account_booking'] ?? 0)) === 1 ? 1 : 0);
+    update_option('fpb_enable_balance_reminders', absint(wp_unslash($_POST['fpb_enable_balance_reminders'] ?? 0)) === 1 ? 1 : 0);
+    update_option('fpb_balance_reminder_hours', max(1, absint(wp_unslash($_POST['fpb_balance_reminder_hours'] ?? 24))));
+    update_option('fpb_balance_reminder_template', wp_kses_post(wp_unslash($_POST['fpb_balance_reminder_template'] ?? '')));
+
+    if (function_exists('sb_sanitize_checkout_mode')) {
+        update_option('fpb_checkout_mode', sb_sanitize_checkout_mode(sanitize_key(wp_unslash($_POST['fpb_checkout_mode'] ?? 'direct'))));
+    }
+    if (function_exists('sb_sanitize_checkout_field_config')) {
+        update_option('fpb_checkout_form_fields', sb_sanitize_checkout_field_config($_POST)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
     }
 
     wp_send_json_success();
+}
+
+add_action('wp_ajax_fpb_admin_send_balance_reminder', 'fpb_admin_send_balance_reminder');
+function fpb_admin_send_balance_reminder()
+{
+    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    if (! current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Permission denied.']);
+    }
+
+    if (! function_exists('fpb_send_balance_reminder_email')) {
+        wp_send_json_error(['message' => 'Reminder function unavailable.']);
+    }
+
+    global $wpdb;
+    $booking_id = absint(wp_unslash($_POST['id'] ?? 0));
+    if ($booking_id < 1) {
+        wp_send_json_error(['message' => 'Invalid booking id.']);
+    }
+
+    $booking = $wpdb->get_row($wpdb->prepare("SELECT order_id FROM {$wpdb->prefix}fpb_bookings WHERE id = %d", $booking_id)); // phpcs:ignore
+    if (! $booking || empty($booking->order_id)) {
+        wp_send_json_error(['message' => 'Booking order not found.']);
+    }
+
+    $sent = fpb_send_balance_reminder_email((int) $booking->order_id, true);
+    if (! $sent) {
+        wp_send_json_error(['message' => 'Reminder was not sent (already paid or data missing).']);
+    }
+
+    wp_send_json_success(['message' => 'Reminder email sent.']);
 }
 
 add_action('wp_ajax_fpb_admin_save_session',   'fpb_admin_save_session');
@@ -330,7 +466,8 @@ function fpb_admin_save_package()
         'name'        => sanitize_text_field(wp_unslash($_POST['name']        ?? '')),
         'price'       => floatval(wp_unslash($_POST['price']       ?? 0)),
         'duration'    => sanitize_text_field(wp_unslash($_POST['duration']    ?? '')),
-        'description' => sanitize_text_field(wp_unslash($_POST['description'] ?? '')),
+        // Rich text from the package editor — lists, bold, links, etc.
+        'description' => wp_kses_post(wp_unslash($_POST['description'] ?? '')),
         'featured'    => absint(wp_unslash($_POST['featured'] ?? 0)) === 1 ? 1 : 0,
         'sort_order'  => absint(wp_unslash($_POST['sort_order']  ?? 0)),
         'active'      => absint(wp_unslash($_POST['active'] ?? 0)) === 1 ? 1 : 0,
@@ -339,9 +476,15 @@ function fpb_admin_save_package()
         wp_send_json_error(['message' => 'Session type and name are required.']);
     }
     if ($id) {
+        // Share-link slug is stable: kept on rename, only filled when missing.
+        $existing_slug = (string) $wpdb->get_var($wpdb->prepare("SELECT slug FROM {$pfx}packages WHERE id=%d", $id)); // phpcs:ignore
+        if ($existing_slug === '') {
+            $data['slug'] = sb_unique_package_slug($data['name'], $id);
+        }
         $result = $wpdb->update("{$pfx}packages", $data, ['id' => $id]); // phpcs:ignore
         if ($result === false) wp_send_json_error(['message' => 'Database error: ' . $wpdb->last_error]);
     } else {
+        $data['slug'] = sb_unique_package_slug($data['name']);
         $result = $wpdb->insert("{$pfx}packages", $data); // phpcs:ignore
         if ($result === false) wp_send_json_error(['message' => 'Database error: ' . $wpdb->last_error]);
         $id = $wpdb->insert_id;
@@ -378,12 +521,22 @@ function fpb_admin_save_addon()
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
     $id   = absint(wp_unslash($_POST['id'] ?? 0));
+
+    // Multi-select package assignment. Selecting "All Packages" (value 0)
+    // anywhere — or selecting nothing — makes the add-on global.
+    $raw_pkg_ids = isset($_POST['package_ids']) ? (array) wp_unslash($_POST['package_ids']) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+    $pkg_ids     = array_map('absint', $raw_pkg_ids);
+    $is_global   = empty($pkg_ids) || in_array(0, $pkg_ids, true);
+    $pkg_ids     = $is_global ? [] : array_values(array_unique(array_filter($pkg_ids)));
+
     $data = [
         'name'        => sanitize_text_field(wp_unslash($_POST['name']        ?? '')),
         'price'       => floatval(wp_unslash($_POST['price']       ?? 0)),
         'emoji'       => wp_encode_emoji(sanitize_text_field(wp_unslash($_POST['emoji']       ?? ''))),
-        'description' => sanitize_text_field(wp_unslash($_POST['description'] ?? '')),
-        'package_id'  => absint(wp_unslash($_POST['package_id']  ?? 0)),
+        // Rich text from the add-on editor — lists, bold, links, etc.
+        'description' => wp_kses_post(wp_unslash($_POST['description'] ?? '')),
+        'package_id'  => $pkg_ids ? $pkg_ids[0] : 0, // legacy single-package column
+        'package_ids' => implode(',', $pkg_ids),
         'sort_order'  => absint(wp_unslash($_POST['sort_order']  ?? 0)),
         'active'      => absint(wp_unslash($_POST['active'] ?? 0)) === 1 ? 1 : 0,
     ];
@@ -470,29 +623,122 @@ function fpb_admin_update_booking_status()
     global $wpdb;
     $id     = absint(wp_unslash($_POST['id'] ?? 0));
     $status = sanitize_text_field(wp_unslash($_POST['status'] ?? ''));
-    if (! in_array($status, ['pending', 'confirmed', 'cancelled', 'completed'], true)) wp_send_json_error();
+    if ($status === 'pending') {
+        $status = 'pending_payment';
+    }
+    if (! in_array($status, ['pending_payment', 'confirmed', 'cancelled', 'completed'], true)) wp_send_json_error();
+
+    $response = [
+        'booking_id' => $id,
+        'booking_status' => $status,
+        'main_order_id' => 0,
+        'main_order_status' => '',
+        'due_order_id' => 0,
+        'due_order_status' => '',
+        'updated_order_id' => 0,
+        'updated_order_status' => '',
+    ];
 
     // Update booking status
     $wpdb->update($wpdb->prefix . 'fpb_bookings', ['status' => $status], ['id' => $id]); // phpcs:ignore
 
-    // Get associated order and update WooCommerce order status
+    // Get associated order and update WooCommerce order status.
+    // For 50% bookings, update the balance order (second order), not the main paid order.
     $booking = $wpdb->get_row($wpdb->prepare("SELECT order_id FROM {$wpdb->prefix}fpb_bookings WHERE id = %d", $id)); // phpcs:ignore
-    if ($booking && $booking->order_id) {
-        $order = wc_get_order($booking->order_id);
-        if ($order) {
-            // Map booking status to WooCommerce order status
+    if ($booking && $booking->order_id && function_exists('wc_get_order')) {
+        $main_order = wc_get_order((int) $booking->order_id);
+        if ($main_order) {
+            $response['main_order_id'] = (int) $main_order->get_id();
+            $response['main_order_status'] = (string) $main_order->get_status();
+
+            $target_order = $main_order;
+            $due_order_id = (int) $main_order->get_meta('_fpb_due_order_id', true);
+            if ($due_order_id > 0) {
+                $due_order = wc_get_order($due_order_id);
+                if ($due_order) {
+                    $target_order = $due_order;
+                    $response['due_order_id'] = (int) $due_order->get_id();
+                    $response['due_order_status'] = (string) $due_order->get_status();
+                }
+            }
+
             $wc_status = 'pending';
             if ($status === 'confirmed') {
                 $wc_status = 'processing';
+            } elseif ($status === 'pending_payment') {
+                $wc_status = 'pending';
             } elseif ($status === 'cancelled') {
                 $wc_status = 'cancelled';
             } elseif ($status === 'completed') {
                 $wc_status = 'completed';
             }
-            $order->set_status($wc_status);
-            $order->save();
+
+            $target_order->set_status($wc_status);
+            $target_order->save();
+
+            $response['updated_order_id'] = (int) $target_order->get_id();
+            $response['updated_order_status'] = (string) $target_order->get_status();
+
+            // Refresh statuses after save so UI can sync instantly without page reload.
+            $ref_main_order = wc_get_order((int) $booking->order_id);
+            if ($ref_main_order) {
+                $response['main_order_id'] = (int) $ref_main_order->get_id();
+                $response['main_order_status'] = (string) $ref_main_order->get_status();
+
+                $ref_due_order_id = (int) $ref_main_order->get_meta('_fpb_due_order_id', true);
+                if ($ref_due_order_id > 0) {
+                    $ref_due_order = wc_get_order($ref_due_order_id);
+                    if ($ref_due_order) {
+                        $response['due_order_id'] = (int) $ref_due_order->get_id();
+                        $response['due_order_status'] = (string) $ref_due_order->get_status();
+                    }
+                }
+            }
         }
     }
 
-    wp_send_json_success();
+    wp_send_json_success($response);
+}
+
+add_action('wp_ajax_fpb_admin_update_wc_order_status', 'fpb_admin_update_wc_order_status');
+function fpb_admin_update_wc_order_status()
+{
+    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    if (! current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Permission denied.']);
+    }
+
+    if (! function_exists('wc_get_order')) {
+        wp_send_json_error(['message' => 'WooCommerce unavailable.']);
+    }
+
+    $order_id = absint(wp_unslash($_POST['order_id'] ?? 0));
+    $status = sanitize_key(wp_unslash($_POST['status'] ?? ''));
+
+    if ($order_id < 1 || $status === '') {
+        wp_send_json_error(['message' => 'Invalid order update request.']);
+    }
+
+    $allowed_statuses = array_keys((array) wc_get_order_statuses());
+    $allowed_statuses = array_map(static function ($key) {
+        return str_replace('wc-', '', (string) $key);
+    }, $allowed_statuses);
+
+    if (! in_array($status, $allowed_statuses, true)) {
+        wp_send_json_error(['message' => 'Invalid WooCommerce order status.']);
+    }
+
+    $order = wc_get_order($order_id);
+    if (! $order) {
+        wp_send_json_error(['message' => 'Order not found.']);
+    }
+
+    $order->set_status($status);
+    $order->save();
+
+    wp_send_json_success([
+        'order_id' => $order_id,
+        'status' => $status,
+        'status_label' => wc_get_order_status_name($status),
+    ]);
 }

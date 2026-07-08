@@ -4,8 +4,8 @@
  * Plugin Name:  SnapBook
  * Plugin URI:   https://snapbookplugin.com
  * Description:  Multi-step photography booking with backend management and WooCommerce checkout. Shortcode: [snapbook]
- * Version:      2.1.0
- * Author:       SnapBook
+ * Version:      2.4.7
+ * Author:       Razibul Hasan
  * Author URI:   https://snapbookplugin.com
  * Text Domain:  snapbook
  * License:      GPL-2.0+
@@ -16,7 +16,7 @@
 
 defined('ABSPATH') || exit;
 
-define('SB_VER', '2.1.0');
+define('SB_VER', '2.4.7');
 define('SB_URL', plugin_dir_url(__FILE__));
 define('SB_DIR', plugin_dir_path(__FILE__));
 
@@ -50,12 +50,6 @@ if (!function_exists('sb_create_tables')) {
         fpb_create_tables();
     }
 }
-if (!function_exists('sb_seed_defaults')) {
-    function sb_seed_defaults()
-    {
-        fpb_seed_defaults();
-    }
-}
 if (!function_exists('sb_migrate_emoji')) {
     function sb_migrate_emoji()
     {
@@ -78,6 +72,112 @@ if (!function_exists('sb_get_currency_symbol')) {
 
         return get_option('fpb_currency_sym', '€');
     }
+}
+
+/**
+ * URL of the icon-font stylesheet loaded on the booking form and the
+ * SnapBook admin pages. Filter 'sb_icon_library_url' to swap the
+ * library or return '' to disable loading it.
+ */
+function sb_icon_library_url()
+{
+    return (string) apply_filters(
+        'sb_icon_library_url',
+        'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css'
+    );
+}
+
+/**
+ * Render an icon value that may be an emoji or an icon-font class
+ * (e.g. "fa-solid fa-camera" or "dashicons dashicons-camera").
+ */
+function sb_icon_html($value)
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('/^[a-z0-9 _-]+$/i', $value) && preg_match('/(^|\s)(fa-|dashicons)/', $value)) {
+        return '<i class="' . esc_attr($value) . '" aria-hidden="true"></i>';
+    }
+
+    return esc_html($value);
+}
+
+/**
+ * Plain-text variant of sb_icon_html() for contexts that cannot render
+ * HTML (<option> elements, emails): emoji pass through unchanged, icon
+ * classes are dropped so class names never show as literal text.
+ */
+function sb_icon_text($value)
+{
+    $value = trim((string) $value);
+    if ($value !== '' && preg_match('/^[a-z0-9 _-]+$/i', $value) && preg_match('/(^|\s)(fa-|dashicons)/', $value)) {
+        return '';
+    }
+
+    return $value;
+}
+
+/**
+ * Find the page (or post) that hosts the booking form: shortcode in the
+ * content, or the SnapBook Elementor widget / shortcode in Elementor data.
+ */
+function sb_detect_booking_page_id()
+{
+    global $wpdb;
+
+    $id = (int) $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+        "SELECT ID FROM {$wpdb->posts}
+		 WHERE post_status = 'publish' AND post_type IN ('page','post')
+		   AND (post_content LIKE '%[snapbook%' OR post_content LIKE '%[focus_booking%')
+		 ORDER BY post_type = 'page' DESC, ID ASC LIMIT 1"
+    );
+    if ($id) {
+        return $id;
+    }
+
+    return (int) $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+        "SELECT p.ID FROM {$wpdb->posts} p
+		 INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_elementor_data'
+		 WHERE p.post_status = 'publish' AND p.post_type IN ('page','post')
+		   AND (m.meta_value LIKE '%snapbook_booking_form%' OR m.meta_value LIKE '%[snapbook%' OR m.meta_value LIKE '%[focus_booking%')
+		 ORDER BY p.post_type = 'page' DESC, p.ID ASC LIMIT 1"
+    );
+}
+
+/**
+ * URL of the booking page used to build shareable package links.
+ * Admin choice (fpb_booking_page_id) wins; otherwise auto-detect.
+ * Returns '' when no booking page could be found.
+ */
+function sb_get_booking_page_url()
+{
+    $page_id = (int) get_option('fpb_booking_page_id', 0);
+    if ($page_id && 'publish' === get_post_status($page_id)) {
+        return (string) get_permalink($page_id);
+    }
+
+    $detected = sb_detect_booking_page_id();
+    return $detected ? (string) get_permalink($detected) : '';
+}
+
+/**
+ * Shareable deep-link for a package row — slug preferred, ID as fallback,
+ * so the link survives package renames.
+ */
+function sb_package_share_link($pkg, $booking_url = null)
+{
+    if (null === $booking_url) {
+        $booking_url = sb_get_booking_page_url();
+    }
+    if ($booking_url === '') {
+        $booking_url = home_url('/');
+    }
+    $ident = (isset($pkg->slug) && $pkg->slug !== '') ? $pkg->slug : (string) (int) $pkg->id;
+
+    return add_query_arg('package', rawurlencode($ident), $booking_url);
 }
 
 /**
@@ -141,7 +241,6 @@ function sb_load()
     // This handles cases where activation hook didn't fire (e.g. manual install)
     if (get_option('fpb_db_version') !== FPB_VER) {
         sb_create_tables();
-        sb_seed_defaults();
     }
 
     // One-time migration: fill blank emoji on existing rows

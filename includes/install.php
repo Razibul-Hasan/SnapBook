@@ -7,7 +7,6 @@ defined('ABSPATH') || exit;
 function fpb_activate()
 {
     fpb_create_tables();
-    fpb_seed_defaults();
     fpb_create_wc_product();
     flush_rewrite_rules();
 }
@@ -15,6 +14,37 @@ function fpb_activate()
 function fpb_deactivate()
 {
     flush_rewrite_rules();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PACKAGE SHARE-LINK SLUGS
+═══════════════════════════════════════════════════════════════ */
+/**
+ * Unique, URL-safe slug for a package share link. Latin names become
+ * "golden-hour"-style slugs; non-Latin names (sanitize_title would
+ * percent-encode them) and purely numeric ones fall back to a
+ * "package-N" form so a slug can never be mistaken for a package ID.
+ * Generated once and kept on rename so shared links never break.
+ */
+function sb_unique_package_slug($name, $exclude_id = 0)
+{
+    global $wpdb;
+    $pfx = $wpdb->prefix . 'fpb_';
+
+    $slug = sanitize_title(remove_accents((string) $name));
+    if ($slug === '' || strpos($slug, '%') !== false) {
+        $slug = 'package';
+    } elseif (ctype_digit($slug)) {
+        $slug = 'package-' . $slug;
+    }
+
+    $base = $slug;
+    $i    = 2;
+    while ((int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$pfx}packages WHERE slug = %s AND id != %d", $slug, $exclude_id)) > 0) { // phpcs:ignore
+        $slug = $base . '-' . $i++;
+    }
+
+    return $slug;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -32,7 +62,7 @@ function fpb_create_tables()
     dbDelta("CREATE TABLE {$pfx}sessions (
 		id       mediumint(9) NOT NULL AUTO_INCREMENT,
 		name     varchar(100) NOT NULL,
-		emoji    varchar(20)  DEFAULT '',
+		emoji    varchar(100) DEFAULT '',
 		slug     varchar(50)  NOT NULL,
 		active   tinyint(1)   DEFAULT 1,
 		sort_order int        DEFAULT 0,
@@ -40,34 +70,49 @@ function fpb_create_tables()
 		UNIQUE KEY slug (slug)
 	) $c;");
 
-    // Packages — belong to a session type
+    // Packages — belong to a session type. slug is the stable identifier
+    // used in shareable ?package= links; it never changes on rename.
     dbDelta("CREATE TABLE {$pfx}packages (
 		id          mediumint(9) NOT NULL AUTO_INCREMENT,
 		session_id  mediumint(9) NOT NULL,
 		name        varchar(100) NOT NULL,
+		slug        varchar(120) DEFAULT '',
 		price       decimal(10,2) NOT NULL DEFAULT 0.00,
 		duration    varchar(80)  DEFAULT '',
-		description varchar(200) DEFAULT '',
+		description text,
 		featured    tinyint(1)   DEFAULT 0,
 		sort_order  int          DEFAULT 0,
 		active      tinyint(1)   DEFAULT 1,
 		PRIMARY KEY (id),
-		KEY session_id (session_id)
+		KEY session_id (session_id),
+		KEY slug (slug)
 	) $c;");
 
-    // Add-ons — global (package_id=0) or tied to a specific package
+    // Backfill share-link slugs for packages created before the slug column.
+    $missing_slugs = $wpdb->get_results("SELECT id, name FROM {$pfx}packages WHERE slug IS NULL OR slug = ''"); // phpcs:ignore
+    foreach ($missing_slugs as $pkg_row) {
+        $wpdb->update("{$pfx}packages", ['slug' => sb_unique_package_slug($pkg_row->name, (int) $pkg_row->id)], ['id' => (int) $pkg_row->id]); // phpcs:ignore
+    }
+
+    // Add-ons — global (no package list) or tied to specific packages.
+    // package_ids is a CSV of package ids; package_id is kept as a legacy
+    // single-package column (first id of the list, 0 = global).
     dbDelta("CREATE TABLE {$pfx}addons (
 		id          mediumint(9) NOT NULL AUTO_INCREMENT,
 		name        varchar(100) NOT NULL,
 		price       decimal(10,2) NOT NULL DEFAULT 0.00,
-		emoji       varchar(20)  DEFAULT '',
-		description varchar(200) DEFAULT '',
+		emoji       varchar(100) DEFAULT '',
+		description text,
 		package_id  mediumint(9) NOT NULL DEFAULT 0,
+		package_ids varchar(255) DEFAULT '',
 		active      tinyint(1)   DEFAULT 1,
 		sort_order  int          DEFAULT 0,
 		PRIMARY KEY (id),
 		KEY package_id (package_id)
 	) $c;");
+
+    // Migrate legacy single-package add-ons to the multi-package list.
+    $wpdb->query("UPDATE {$pfx}addons SET package_ids = package_id WHERE (package_ids IS NULL OR package_ids = '') AND package_id > 0"); // phpcs:ignore
 
     // Date slots — dates marked booked/blocked by admin; all other future dates = available
     dbDelta("CREATE TABLE {$pfx}dates (
@@ -86,7 +131,7 @@ function fpb_create_tables()
 		session_type  varchar(100)  NOT NULL DEFAULT '',
 		package_name  varchar(100)  NOT NULL DEFAULT '',
 		package_price decimal(10,2) NOT NULL DEFAULT 0.00,
-		addons_json   text          DEFAULT '',
+		addons_json   text,
 		addons_total  decimal(10,2) DEFAULT 0.00,
 		total         decimal(10,2) NOT NULL DEFAULT 0.00,
 		deposit       decimal(10,2) NOT NULL DEFAULT 0.00,
@@ -97,7 +142,7 @@ function fpb_create_tables()
 		session_date  date          DEFAULT NULL,
 		session_time  varchar(100)  DEFAULT '',
 		location_pref varchar(200)  DEFAULT '',
-		notes         text          DEFAULT '',
+		notes         text,
 		signer_name   varchar(200)  DEFAULT '',
 		status        varchar(50)   DEFAULT 'pending',
 		created_at    datetime      DEFAULT CURRENT_TIMESTAMP,
@@ -154,61 +199,6 @@ function fpb_migrate_emoji()
     }
 
     update_option('fpb_emoji_migrated', '1');
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   SEED DEFAULT DATA (only on first activation)
-═══════════════════════════════════════════════════════════════ */
-function fpb_seed_defaults()
-{
-    global $wpdb;
-    $pfx = $wpdb->prefix . 'fpb_';
-
-    // Already seeded?
-    if ((int) $wpdb->get_var("SELECT COUNT(*) FROM {$pfx}sessions") > 0) { // phpcs:ignore
-        return;
-    }
-
-    $sessions = [
-        ['name' => 'Holiday / Couple Photoshoot', 'emoji' => wp_encode_emoji('📷'), 'slug' => 'photo',   'sort_order' => 1],
-        ['name' => 'Wedding Photography',          'emoji' => wp_encode_emoji('💍'), 'slug' => 'wedding', 'sort_order' => 2],
-        ['name' => 'Videography',                  'emoji' => wp_encode_emoji('🎬'), 'slug' => 'video',   'sort_order' => 3],
-        ['name' => 'PhotoBooth Hire',              'emoji' => wp_encode_emoji('📸'), 'slug' => 'booth',   'sort_order' => 4],
-    ];
-    foreach ($sessions as $s) {
-        $wpdb->insert("{$pfx}sessions", $s);  // phpcs:ignore
-    }
-
-    $packages = [
-        // photo
-        ['session_id' => 1, 'name' => 'Golden Hour',       'price' => 199,  'duration' => '1hr',      'description' => '30 edited photos',         'featured' => 0, 'sort_order' => 1],
-        ['session_id' => 1, 'name' => 'Mauritius Story',   'price' => 399,  'duration' => '3hrs',     'description' => '80+ edited photos',        'featured' => 1, 'sort_order' => 2],
-        ['session_id' => 1, 'name' => 'Island Explorer',   'price' => 699,  'duration' => 'Full day', 'description' => 'Unlimited + drone',        'featured' => 0, 'sort_order' => 3],
-        // wedding
-        ['session_id' => 2, 'name' => 'Elopement',         'price' => 750,  'duration' => '4hrs',     'description' => '100 edited photos',        'featured' => 0, 'sort_order' => 1],
-        ['session_id' => 2, 'name' => 'Full Day',          'price' => 1800, 'duration' => '8hrs',     'description' => 'Photo + video highlights', 'featured' => 1, 'sort_order' => 2],
-        ['session_id' => 2, 'name' => 'Grand Celebration', 'price' => 3500, 'duration' => '2 days',   'description' => 'Full team coverage',       'featured' => 0, 'sort_order' => 3],
-        // video
-        ['session_id' => 3, 'name' => 'Short Film',        'price' => 600,  'duration' => 'Up to 3min', 'description' => 'Highlights reel',         'featured' => 0, 'sort_order' => 1],
-        ['session_id' => 3, 'name' => 'Wedding Film',      'price' => 1200, 'duration' => 'Full day', 'description' => 'Trailer + full film',      'featured' => 1, 'sort_order' => 2],
-        ['session_id' => 3, 'name' => 'Cinematic Suite',   'price' => 2400, 'duration' => 'Full day', 'description' => 'Photo + video combo',      'featured' => 0, 'sort_order' => 3],
-        // booth
-        ['session_id' => 4, 'name' => 'Essential',         'price' => 350,  'duration' => '2hrs',     'description' => 'Instant prints',           'featured' => 0, 'sort_order' => 1],
-        ['session_id' => 4, 'name' => 'Premium',           'price' => 550,  'duration' => '4hrs',     'description' => 'Full booth experience',    'featured' => 1, 'sort_order' => 2],
-        ['session_id' => 4, 'name' => 'Corporate',         'price' => 800,  'duration' => 'Up to 6hrs', 'description' => 'Branded + custom props',  'featured' => 0, 'sort_order' => 3],
-    ];
-    foreach ($packages as $p) {
-        $wpdb->insert("{$pfx}packages", $p);  // phpcs:ignore
-    }
-
-    $addons = [
-        ['name' => 'Drone aerial session',   'price' => 150, 'emoji' => wp_encode_emoji('🚁'), 'description' => 'FAA-compliant aerial footage', 'sort_order' => 1],
-        ['name' => 'Printed album 20×30cm', 'price' => 80,  'emoji' => wp_encode_emoji('🖨️'), 'description' => 'Premium lay-flat album',       'sort_order' => 2],
-        ['name' => 'Rush delivery',          'price' => 50,  'emoji' => wp_encode_emoji('⚡'), 'description' => 'Delivery within 5 days',       'sort_order' => 3],
-    ];
-    foreach ($addons as $a) {
-        $wpdb->insert("{$pfx}addons", $a);  // phpcs:ignore
-    }
 }
 
 /* ═══════════════════════════════════════════════════════════════
