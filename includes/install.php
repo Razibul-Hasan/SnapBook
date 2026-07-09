@@ -4,14 +4,14 @@ defined('ABSPATH') || exit;
 /* ═══════════════════════════════════════════════════════════════
    ACTIVATION / DEACTIVATION
 ═══════════════════════════════════════════════════════════════ */
-function fpb_activate()
+function snapbook_activate()
 {
-    fpb_create_tables();
-    fpb_create_wc_product();
+    snapbook_create_tables();
+    snapbook_create_wc_product();
     flush_rewrite_rules();
 }
 
-function fpb_deactivate()
+function snapbook_deactivate()
 {
     flush_rewrite_rules();
 }
@@ -26,7 +26,7 @@ function fpb_deactivate()
  * "package-N" form so a slug can never be mistaken for a package ID.
  * Generated once and kept on rename so shared links never break.
  */
-function sb_unique_package_slug($name, $exclude_id = 0)
+function snapbook_unique_package_slug($name, $exclude_id = 0)
 {
     global $wpdb;
     $pfx = $wpdb->prefix . 'fpb_';
@@ -50,7 +50,7 @@ function sb_unique_package_slug($name, $exclude_id = 0)
 /* ═══════════════════════════════════════════════════════════════
    CREATE DATABASE TABLES
 ═══════════════════════════════════════════════════════════════ */
-function fpb_create_tables()
+function snapbook_create_tables()
 {
     global $wpdb;
     $c   = $wpdb->get_charset_collate();
@@ -91,7 +91,7 @@ function fpb_create_tables()
     // Backfill share-link slugs for packages created before the slug column.
     $missing_slugs = $wpdb->get_results("SELECT id, name FROM {$pfx}packages WHERE slug IS NULL OR slug = ''"); // phpcs:ignore
     foreach ($missing_slugs as $pkg_row) {
-        $wpdb->update("{$pfx}packages", ['slug' => sb_unique_package_slug($pkg_row->name, (int) $pkg_row->id)], ['id' => (int) $pkg_row->id]); // phpcs:ignore
+        $wpdb->update("{$pfx}packages", ['slug' => snapbook_unique_package_slug($pkg_row->name, (int) $pkg_row->id)], ['id' => (int) $pkg_row->id]); // phpcs:ignore
     }
 
     // Add-ons — global (no package list) or tied to specific packages.
@@ -150,14 +150,14 @@ function fpb_create_tables()
 		KEY order_id (order_id)
 	) $c;");
 
-    update_option('fpb_db_version', FPB_VER);
+    update_option('fpb_db_version', SNAPBOOK_VER);
 }
 
 /* ═══════════════════════════════════════════════════════════════
    MIGRATE EMOJI — fill blank emoji columns on existing DB rows
    Runs once; gated by option flag so it never re-runs.
 ═══════════════════════════════════════════════════════════════ */
-function fpb_migrate_emoji()
+function snapbook_migrate_emoji()
 {
     if (get_option('fpb_emoji_migrated')) {
         return;
@@ -204,7 +204,7 @@ function fpb_migrate_emoji()
 /* ═══════════════════════════════════════════════════════════════
    CREATE HIDDEN WOOCOMMERCE PRODUCT (deposit placeholder)
 ═══════════════════════════════════════════════════════════════ */
-function fpb_create_wc_product()
+function snapbook_create_wc_product()
 {
     if (! class_exists('WooCommerce')) {
         return;

@@ -7,7 +7,7 @@ defined('ABSPATH') || exit;
    "Checkout Form" settings store per-field enabled/required/label
    overrides in the fpb_checkout_form_fields option.
 ───────────────────────────────────────────────────────────── */
-function sb_checkout_field_catalog()
+function snapbook_checkout_field_catalog()
 {
     return [
         'first_name'   => ['label' => __('First name', 'snapbook'),                              'type' => 'text',     'ph' => __('First name', 'snapbook'),                     'required' => 1, 'locked' => 1],
@@ -27,9 +27,9 @@ function sb_checkout_field_catalog()
     ];
 }
 
-function sb_get_checkout_form_fields()
+function snapbook_get_checkout_form_fields()
 {
-    $catalog = sb_checkout_field_catalog();
+    $catalog = snapbook_checkout_field_catalog();
     $saved   = get_option('fpb_checkout_form_fields', []);
     if (! is_array($saved)) {
         $saved = [];
@@ -54,24 +54,24 @@ function sb_get_checkout_form_fields()
     return $out;
 }
 
-function sb_sanitize_checkout_mode($mode)
+function snapbook_sanitize_checkout_mode($mode)
 {
     $mode = sanitize_key((string) $mode);
     return in_array($mode, ['direct', 'redirect'], true) ? $mode : 'direct';
 }
 
-function sb_get_checkout_mode()
+function snapbook_get_checkout_mode()
 {
-    return sb_sanitize_checkout_mode(get_option('fpb_checkout_mode', 'direct'));
+    return snapbook_sanitize_checkout_mode(get_option('fpb_checkout_mode', 'direct'));
 }
 
 /**
  * Build the fpb_checkout_form_fields option value from a settings-form POST.
  * Expects fpb_cf_enabled[key], fpb_cf_required[key], fpb_cf_label[key].
  */
-function sb_sanitize_checkout_field_config($post)
+function snapbook_sanitize_checkout_field_config($post)
 {
-    $catalog  = sb_checkout_field_catalog();
+    $catalog  = snapbook_checkout_field_catalog();
     $enabled  = isset($post['fpb_cf_enabled']) && is_array($post['fpb_cf_enabled']) ? $post['fpb_cf_enabled'] : [];
     $required = isset($post['fpb_cf_required']) && is_array($post['fpb_cf_required']) ? $post['fpb_cf_required'] : [];
     $labels   = isset($post['fpb_cf_label']) && is_array($post['fpb_cf_label']) ? $post['fpb_cf_label'] : [];
@@ -96,7 +96,7 @@ function sb_sanitize_checkout_field_config($post)
    stored in the fpb_checkout_custom_fields option as
    [key => ['label','type','required']].
 ───────────────────────────────────────────────────────────── */
-function sb_custom_checkout_field_types()
+function snapbook_custom_checkout_field_types()
 {
     return [
         'text'     => __('Text', 'snapbook'),
@@ -109,14 +109,14 @@ function sb_custom_checkout_field_types()
     ];
 }
 
-function sb_get_custom_checkout_fields()
+function snapbook_get_custom_checkout_fields()
 {
     $saved = get_option('fpb_checkout_custom_fields', []);
     if (! is_array($saved)) {
         return [];
     }
 
-    $types = sb_custom_checkout_field_types();
+    $types = snapbook_custom_checkout_field_types();
     $out   = [];
     foreach ($saved as $key => $row) {
         if (! is_array($row)) {
@@ -142,12 +142,12 @@ function sb_get_custom_checkout_fields()
  * Rows arrive as fpb_ccf_label[key], fpb_ccf_type[key], fpb_ccf_required[key];
  * rows removed in the UI are simply absent, so they get dropped here.
  */
-function sb_sanitize_custom_checkout_fields($post)
+function snapbook_sanitize_custom_checkout_fields($post)
 {
     $labels   = isset($post['fpb_ccf_label']) && is_array($post['fpb_ccf_label']) ? $post['fpb_ccf_label'] : [];
     $types_in = isset($post['fpb_ccf_type']) && is_array($post['fpb_ccf_type']) ? $post['fpb_ccf_type'] : [];
     $reqs     = isset($post['fpb_ccf_required']) && is_array($post['fpb_ccf_required']) ? $post['fpb_ccf_required'] : [];
-    $types    = sb_custom_checkout_field_types();
+    $types    = snapbook_custom_checkout_field_types();
 
     $out = [];
     foreach ($labels as $orig_key => $label) {
@@ -185,14 +185,14 @@ function sb_sanitize_custom_checkout_fields($post)
  * Sanitize the details[] array posted by the booking form,
  * keyed and typed according to the field catalog.
  */
-function sb_sanitize_checkout_details($raw)
+function snapbook_sanitize_checkout_details($raw)
 {
     if (! is_array($raw)) {
         return [];
     }
 
-    $catalog = sb_checkout_field_catalog();
-    $fields  = sb_get_checkout_form_fields();
+    $catalog = snapbook_checkout_field_catalog();
+    $fields  = snapbook_get_checkout_form_fields();
     $out     = [];
 
     foreach ($fields as $key => $f) {
@@ -217,7 +217,7 @@ function sb_sanitize_checkout_details($raw)
     }
 
     // Admin-created custom fields travel namespaced as cf_{key}.
-    foreach (sb_get_custom_checkout_fields() as $key => $f) {
+    foreach (snapbook_get_custom_checkout_fields() as $key => $f) {
         $pkey  = 'cf_' . $key;
         $value = isset($raw[$pkey]) ? wp_unslash($raw[$pkey]) : '';
         switch ($f['type']) {
@@ -240,14 +240,14 @@ function sb_sanitize_checkout_details($raw)
    Theme colors — admin-selected brand colors for the booking
    form, injected as CSS-variable overrides on .fpb-wrap.
 ───────────────────────────────────────────────────────────── */
-function sb_default_theme_colors()
+function snapbook_default_theme_colors()
 {
     return ['primary' => '#b8956a', 'accent' => '#3d6b78'];
 }
 
-function sb_get_theme_colors()
+function snapbook_get_theme_colors()
 {
-    $defaults = sb_default_theme_colors();
+    $defaults = snapbook_default_theme_colors();
     $primary  = sanitize_hex_color(get_option('fpb_theme_primary', $defaults['primary']));
     $accent   = sanitize_hex_color(get_option('fpb_theme_accent', $defaults['accent']));
     return [
@@ -260,7 +260,7 @@ function sb_get_theme_colors()
  * Mix a hex color toward another (e.g. white to lighten, black to darken).
  * $ratio is the weight of $mix_hex (0..1).
  */
-function sb_hex_mix($hex, $mix_hex, $ratio)
+function snapbook_hex_mix($hex, $mix_hex, $ratio)
 {
     $h = ltrim($hex, '#');
     $m = ltrim($mix_hex, '#');
@@ -284,12 +284,11 @@ function sb_hex_mix($hex, $mix_hex, $ratio)
 
 /**
  * Build a CSS-variable override block for a given primary/accent pair,
- * scoped to $selector. The derived shades match sb_theme_css() exactly,
- * so per-instance overrides (Elementor widget / Gutenberg block) and the
- * global Appearance setting stay visually consistent. Returns '' when the
- * colors are empty or invalid.
+ * scoped to $selector. The derived shades match snapbook_theme_css() exactly,
+ * so per-instance shortcode overrides and the global Appearance setting
+ * stay visually consistent. Returns '' when the colors are empty or invalid.
  */
-function sb_theme_vars_css($primary, $accent, $selector = '.fpb-wrap')
+function snapbook_theme_vars_css($primary, $accent, $selector = '.fpb-wrap')
 {
     $primary = trim((string) $primary);
     $accent  = trim((string) $accent);
@@ -305,15 +304,15 @@ function sb_theme_vars_css($primary, $accent, $selector = '.fpb-wrap')
         $vars .= sprintf(
             '--fpb-gold:%s;--fpb-gold-dk:%s;--fpb-gold-lt:%s;',
             $primary,
-            sb_hex_mix($primary, '#000000', 0.18),
-            sb_hex_mix($primary, '#ffffff', 0.72)
+            snapbook_hex_mix($primary, '#000000', 0.18),
+            snapbook_hex_mix($primary, '#ffffff', 0.72)
         );
     }
     if ($valid($accent)) {
         $vars .= sprintf(
             '--fpb-teal:%s;--fpb-teal-lt:%s;',
             $accent,
-            sb_hex_mix($accent, '#ffffff', 0.86)
+            snapbook_hex_mix($accent, '#ffffff', 0.86)
         );
     }
 
@@ -325,75 +324,82 @@ function sb_theme_vars_css($primary, $accent, $selector = '.fpb-wrap')
  * hasn't customized anything, so the stylesheet's hand-tuned palette
  * stays byte-identical by default.
  */
-function sb_theme_css()
+function snapbook_theme_css()
 {
-    $defaults = sb_default_theme_colors();
-    $colors   = sb_get_theme_colors();
+    $defaults = snapbook_default_theme_colors();
+    $colors   = snapbook_get_theme_colors();
     if (strtolower($colors['primary']) === $defaults['primary'] && strtolower($colors['accent']) === $defaults['accent']) {
         return '';
     }
 
-    return sb_theme_vars_css($colors['primary'], $colors['accent'], '.fpb-wrap');
-}
-
-/**
- * Active packages for editor "pre-select a package" pickers (Elementor
- * control + Gutenberg block). Each entry carries the stable slug (falling
- * back to the numeric id) plus a human label prefixed with its session
- * type — matching the values the ?package= deep-link accepts.
- */
-function sb_get_active_packages_for_picker()
-{
-    global $wpdb;
-    $pfx  = $wpdb->prefix . 'fpb_';
-    $rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared
-        "SELECT p.id, p.slug, p.name, s.name AS session_name
-           FROM {$pfx}packages p
-           JOIN {$pfx}sessions s ON s.id = p.session_id
-          WHERE p.active = 1 AND s.active = 1
-          ORDER BY s.sort_order, s.id, p.sort_order, p.id"
-    );
-
-    $out = [];
-    foreach ((array) $rows as $r) {
-        $value = ($r->slug !== null && $r->slug !== '') ? $r->slug : (string) (int) $r->id;
-        $out[] = [
-            'value' => $value,
-            'label' => trim(($r->session_name ? $r->session_name . ' — ' : '') . $r->name),
-        ];
-    }
-    return $out;
+    return snapbook_theme_vars_css($colors['primary'], $colors['accent'], '.fpb-wrap');
 }
 
 /* ─────────────────────────────────────────────────────────────
    Register assets & shortcode
 ───────────────────────────────────────────────────────────── */
-add_action('init', 'sb_register_assets');
-add_action('wp_enqueue_scripts', 'sb_register_assets');
-function sb_register_assets()
+add_action('init', 'snapbook_register_assets');
+function snapbook_register_assets()
 {
     wp_register_style(
-        'sb-booking-css',
-        SB_URL . 'assets/css/booking.css',
+        'snapbook-booking',
+        SNAPBOOK_URL . 'assets/css/booking.css',
         [],
-        SB_VER
+        SNAPBOOK_VER
     );
-    $icon_lib = sb_icon_library_url();
+    $icon_lib = snapbook_icon_library_url();
     if ($icon_lib !== '') {
-        wp_register_style('sb-icon-library', $icon_lib, [], SB_VER);
+        wp_register_style('snapbook-icons', $icon_lib, [], SNAPBOOK_VER);
     }
+    // Deferred so the script never blocks first paint. On WP < 6.3 the
+    // array argument gracefully degrades to a plain footer script.
     wp_register_script(
-        'sb-booking-js',
-        SB_URL . 'assets/js/booking.js',
+        'snapbook-booking',
+        SNAPBOOK_URL . 'assets/js/booking.js',
         [],
-        SB_VER,
-        true
+        SNAPBOOK_VER,
+        ['in_footer' => true, 'strategy' => 'defer']
     );
 }
 
-add_shortcode('snapbook', 'sb_shortcode');
-add_shortcode('focus_booking', 'sb_shortcode');
-function sb_shortcode($atts)
+function snapbook_enqueue_booking_assets()
+{
+    wp_enqueue_style('snapbook-booking');
+    // Dashicons render the optional "dashicons dashicons-*" icon values.
+    wp_enqueue_style('dashicons');
+    if (wp_style_is('snapbook-icons', 'registered')) {
+        wp_enqueue_style('snapbook-icons');
+    }
+    wp_enqueue_script('snapbook-booking');
+}
+
+/**
+ * Lazy, conditional loading: assets are enqueued only on pages that
+ * actually contain the booking form. Enqueueing here (instead of only
+ * inside the shortcode callback) lets the stylesheet print in <head>
+ * on the first page load, avoiding a flash of unstyled form. Pages that
+ * render the shortcode another way (e.g. a page-builder widget) are
+ * still covered by the enqueue inside the shortcode callback itself.
+ */
+add_action('wp_enqueue_scripts', 'snapbook_maybe_enqueue_assets');
+function snapbook_maybe_enqueue_assets()
+{
+    if (! is_singular()) {
+        return;
+    }
+    $post = get_post();
+    if (! $post) {
+        return;
+    }
+    $content = (string) $post->post_content;
+    if (has_shortcode($content, 'snapbook') || has_shortcode($content, 'focus_booking')) {
+        snapbook_enqueue_booking_assets();
+    }
+}
+
+add_shortcode('snapbook', 'snapbook_shortcode');
+add_shortcode('focus_booking', 'snapbook_shortcode');
+function snapbook_shortcode($atts)
 {
     $atts = shortcode_atts([
         'package' => '',
@@ -401,31 +407,27 @@ function sb_shortcode($atts)
         'accent'  => '',
     ], $atts, 'snapbook');
 
-    wp_enqueue_style('sb-booking-css');
-    if (wp_style_is('sb-icon-library', 'registered')) {
-        wp_enqueue_style('sb-icon-library');
-    }
-    wp_enqueue_script('sb-booking-js');
+    snapbook_enqueue_booking_assets();
 
-    $theme_css = sb_theme_css();
+    $theme_css = snapbook_theme_css();
     if ($theme_css !== '') {
-        wp_add_inline_style('sb-booking-css', $theme_css);
+        wp_add_inline_style('snapbook-booking', $theme_css);
     }
 
-    // Per-instance color overrides (from the Elementor widget / Gutenberg
-    // block passing primary/accent atts) scoped to this instance only.
-    $instance_css = sb_theme_vars_css($atts['primary'], $atts['accent'], '.fpb-wrap');
+    // Per-instance color overrides from the shortcode's primary/accent
+    // attributes, scoped to this instance only.
+    $instance_css = snapbook_theme_vars_css($atts['primary'], $atts['accent'], '.fpb-wrap');
     if ($instance_css !== '') {
-        wp_add_inline_style('sb-booking-css', $instance_css);
+        wp_add_inline_style('snapbook-booking', $instance_css);
     }
 
     $has_wc = class_exists('WooCommerce');
     $local_data = [
         'ajaxUrl'    => admin_url('admin-ajax.php'),
-        'nonce'      => wp_create_nonce('fpb_nonce'),
+        'nonce'      => wp_create_nonce('snapbook_nonce'),
         'hasWC'      => $has_wc,
-        'checkoutMode' => sb_get_checkout_mode(),
-        'currency'   => sb_get_currency_symbol(),
+        'checkoutMode' => snapbook_get_checkout_mode(),
+        'currency'   => snapbook_get_currency_symbol(),
         'depositPct' => ((int) get_option('fpb_enable_partial_payment', 1) === 1 ? 50 : 100),
         'partialPaymentEnabled' => ((int) get_option('fpb_enable_partial_payment', 1) === 1),
         'partialBlockDays' => max(0, (int) get_option('fpb_partial_block_days', 0)),
@@ -436,10 +438,10 @@ function sb_shortcode($atts)
         'confirmPendingTitle' => get_option('fpb_confirm_pending_title', __('Booking Received!', 'snapbook')),
         'confirmPendingMsg'   => get_option('fpb_confirm_pending_msg', __('Thank you for your booking! Complete the payment below to confirm your slot.', 'snapbook')),
     ];
-    wp_localize_script('sb-booking-js', 'fpbData', $local_data);
+    wp_localize_script('snapbook-booking', 'snapbookData', $local_data);
 
     ob_start();
-    sb_render_shortcode(['package' => $atts['package']]);
+    snapbook_render_shortcode(['package' => $atts['package']]);
     return ob_get_clean();
 }
 
@@ -449,9 +451,9 @@ function sb_shortcode($atts)
  * catalog keys that belong to it; the last group also carries the admin
  * custom fields. Filterable so integrations can re-map the grouping.
  */
-function sb_checkout_field_groups()
+function snapbook_checkout_field_groups()
 {
-    return apply_filters('sb_checkout_field_groups', [
+    return apply_filters('snapbook_checkout_field_groups', [
         [
             'title' => __('Contact', 'snapbook'),
             'keys'  => ['first_name', 'last_name', 'email', 'phone'],
@@ -472,12 +474,12 @@ function sb_checkout_field_groups()
     ]);
 }
 
-function sb_render_checkout_form_fields()
+function snapbook_render_checkout_form_fields()
 {
-    $catalog = sb_checkout_field_catalog();
-    $fields  = sb_get_checkout_form_fields();
-    $custom  = function_exists('sb_get_custom_checkout_fields') ? sb_get_custom_checkout_fields() : [];
-    $groups  = sb_checkout_field_groups();
+    $catalog = snapbook_checkout_field_catalog();
+    $fields  = snapbook_get_checkout_form_fields();
+    $custom  = function_exists('snapbook_get_custom_checkout_fields') ? snapbook_get_custom_checkout_fields() : [];
+    $groups  = snapbook_checkout_field_groups();
 
     // Safety net: any catalog field not named in a group still renders,
     // appended to the last group, so a future field is never dropped.
@@ -535,14 +537,14 @@ function sb_render_checkout_form_fields()
             $span[$pending] = true; // trailing lone narrow field
         }
 
-        echo '<div class="fdetails-group">';
-        echo '<div class="fsec-label">' . esc_html($group['title']) . '</div>';
-        echo '<div class="fgrid2">';
+        echo '<div class="fpb-details-group">';
+        echo '<div class="fpb-sec-label">' . esc_html($group['title']) . '</div>';
+        echo '<div class="fpb-grid2">';
         foreach ($items as $i => $item) {
             if ($item[0] === 'builtin') {
-                sb_render_builtin_checkout_field($item[1], $catalog[$item[1]], $fields[$item[1]], $span[$i]);
+                snapbook_render_builtin_checkout_field($item[1], $catalog[$item[1]], $fields[$item[1]], $span[$i]);
             } else {
-                sb_render_custom_checkout_field($item[1], $custom[$item[1]], $span[$i]);
+                snapbook_render_custom_checkout_field($item[1], $custom[$item[1]], $span[$i]);
             }
         }
         echo '</div>';
@@ -553,7 +555,7 @@ function sb_render_checkout_form_fields()
 /**
  * Render a single built-in checkout field (catalog-driven).
  */
-function sb_render_builtin_checkout_field($key, $def, $f, $force_span = false)
+function snapbook_render_builtin_checkout_field($key, $def, $f, $force_span = false)
 {
     $type = $def['type'];
     $wide = $force_span || ! empty($def['wide']) || $type === 'textarea';
@@ -565,8 +567,8 @@ function sb_render_builtin_checkout_field($key, $def, $f, $force_span = false)
         . ' data-label="' . esc_attr($f['label']) . '"'
         . ' placeholder="' . esc_attr($def['ph'] ?? $f['label']) . '"';
 
-    echo '<div class="ffield' . ($wide ? ' fgridspan' : '') . '">';
-    echo '<label for="' . esc_attr($fid) . '">' . esc_html($f['label']) . ($f['required'] ? ' <span class="req">*</span>' : '') . '</label>';
+    echo '<div class="fpb-field' . ($wide ? ' fpb-gridspan' : '') . '">';
+    echo '<label for="' . esc_attr($fid) . '">' . esc_html($f['label']) . ($f['required'] ? ' <span class="fpb-req">*</span>' : '') . '</label>';
 
     if ($type === 'textarea') {
         echo '<textarea' . $common . '></textarea>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
@@ -595,7 +597,7 @@ function sb_render_builtin_checkout_field($key, $def, $f, $force_span = false)
 /**
  * Render a single admin-created custom checkout field (namespaced cf_{key}).
  */
-function sb_render_custom_checkout_field($key, $f, $force_span = false)
+function snapbook_render_custom_checkout_field($key, $f, $force_span = false)
 {
     $fid  = 'fpb-ccf-' . $key;
     $wide = $force_span || $f['type'] === 'textarea';
@@ -606,8 +608,8 @@ function sb_render_custom_checkout_field($key, $f, $force_span = false)
         . ' data-label="' . esc_attr($f['label']) . '"'
         . ' placeholder="' . esc_attr($f['label']) . '"';
 
-    echo '<div class="ffield' . ($wide ? ' fgridspan' : '') . '">';
-    echo '<label for="' . esc_attr($fid) . '">' . esc_html($f['label']) . ($f['required'] ? ' <span class="req">*</span>' : '') . '</label>';
+    echo '<div class="fpb-field' . ($wide ? ' fpb-gridspan' : '') . '">';
+    echo '<label for="' . esc_attr($fid) . '">' . esc_html($f['label']) . ($f['required'] ? ' <span class="fpb-req">*</span>' : '') . '</label>';
     if ($f['type'] === 'textarea') {
         echo '<textarea' . $common . '></textarea>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
     } else {
@@ -616,13 +618,13 @@ function sb_render_custom_checkout_field($key, $f, $force_span = false)
     echo '</div>';
 }
 
-function sb_render_shortcode($opts = [])
+function snapbook_render_shortcode($opts = [])
 {
     $opts = wp_parse_args($opts, ['package' => '']);
     $preselect = trim((string) $opts['package']);
 
     $has_wc = class_exists('WooCommerce');
-    $mode   = sb_get_checkout_mode();
+    $mode   = snapbook_get_checkout_mode();
     if (! $has_wc) {
         $checkout_label = __('Submit Booking Request', 'snapbook');
     } else {
@@ -632,20 +634,20 @@ function sb_render_shortcode($opts = [])
     <div class="fpb-wrap"<?php echo $preselect !== '' ? ' data-package="' . esc_attr($preselect) . '"' : ''; ?>>
 
         <!-- Step indicator -->
-        <div class="sbar2" id="fpb-steps">
-            <div class="stab active" id="fpb-sp1"><span class="sci">1</span><?php esc_html_e('Date', 'snapbook'); ?></div>
-            <div class="stab" id="fpb-sp2"><span class="sci">2</span><?php esc_html_e('Package', 'snapbook'); ?></div>
-            <div class="stab" id="fpb-sp3"><span class="sci">3</span><?php esc_html_e('Details', 'snapbook'); ?></div>
-            <div class="stab" id="fpb-sp4"><span class="sci">4</span><?php esc_html_e('Payment', 'snapbook'); ?></div>
+        <div class="fpb-steps-bar" id="fpb-steps">
+            <div class="fpb-stab fpb-active" id="fpb-sp1"><span class="fpb-sci">1</span><?php esc_html_e('Date', 'snapbook'); ?></div>
+            <div class="fpb-stab" id="fpb-sp2"><span class="fpb-sci">2</span><?php esc_html_e('Package', 'snapbook'); ?></div>
+            <div class="fpb-stab" id="fpb-sp3"><span class="fpb-sci">3</span><?php esc_html_e('Details', 'snapbook'); ?></div>
+            <div class="fpb-stab" id="fpb-sp4"><span class="fpb-sci">4</span><?php esc_html_e('Payment', 'snapbook'); ?></div>
         </div>
 
         <!-- STEP 1 — Date -->
-        <div class="fstep act" id="fpb-s1">
-            <div class="fstep-inner">
-                <h2 class="ftitle"><?php echo esc_html(get_option('fpb_step1_title', 'Choose Your Date')); ?></h2>
-                <p class="fsub"><?php echo esc_html(get_option('fpb_step1_sub', 'Select your preferred session date to begin your booking.')); ?></p>
+        <div class="fpb-step fpb-act" id="fpb-s1">
+            <div class="fpb-step-inner">
+                <h2 class="fpb-title"><?php echo esc_html(get_option('fpb_step1_title', 'Choose Your Date')); ?></h2>
+                <p class="fpb-sub"><?php echo esc_html(get_option('fpb_step1_sub', 'Select your preferred session date to begin your booking.')); ?></p>
 
-                <div class="fdatesec" id="fpb-dateSec">
+                <div class="fpb-datesec" id="fpb-dateSec">
                     <div class="fpb-cal">
                         <div class="fpb-cal-head">
                             <button class="fpb-cal-nav" id="fpb-calPrev" type="button">&#8249;</button>
@@ -661,46 +663,46 @@ function sb_render_shortcode($opts = [])
                     <p id="fpb-selDate" class="fpb-seldate"></p>
                 </div>
 
-                <div class="fnav">
+                <div class="fpb-nav">
                     <div></div>
-                    <button class="btn bg" id="fpb-s1NextBtn" onclick="fpb.s1Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
+                    <button class="fpb-btn fpb-btn-gold" id="fpb-s1NextBtn" onclick="snapbook.s1Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
                 </div>
-                <p id="fpb-s1err" class="ferr"></p>
+                <p id="fpb-s1err" class="fpb-error"></p>
             </div>
         </div>
 
         <!-- STEP 2 — Package & Add-ons -->
-        <div class="fstep" id="fpb-s2">
-            <div class="fstep-inner">
-                <h2 class="ftitle"><?php esc_html_e('Select Your Package', 'snapbook'); ?></h2>
-                <p class="fsub"><?php esc_html_e("Choose a session type, package, and any add-ons you'd like.", 'snapbook'); ?></p>
+        <div class="fpb-step" id="fpb-s2">
+            <div class="fpb-step-inner">
+                <h2 class="fpb-title"><?php esc_html_e('Select Your Package', 'snapbook'); ?></h2>
+                <p class="fpb-sub"><?php esc_html_e("Choose a session type, package, and any add-ons you'd like.", 'snapbook'); ?></p>
 
                 <!-- Shown when a ?package= share link points at an unavailable package -->
                 <p class="fpb-pkg-notice" id="fpb-pkgNotice" style="display:none"><?php esc_html_e("That package isn't available — please choose from the options below.", 'snapbook'); ?></p>
 
-                <div class="fsec-label"><?php esc_html_e('Session Type', 'snapbook'); ?></div>
+                <div class="fpb-sec-label"><?php esc_html_e('Session Type', 'snapbook'); ?></div>
                 <div class="fpb-stype-wrap" id="fpb-typeTabs">
                     <!-- JS populates one .fpb-stype-btn per session -->
                     <span class="fpb-stype-loading">Loading…</span>
                 </div>
 
-                <div class="fsec-label" style="margin-top:1.6rem"><?php esc_html_e('Select Package', 'snapbook'); ?></div>
-                <div class="fpcards" id="fpb-pkgGrid"></div>
+                <div class="fpb-sec-label" style="margin-top:1.6rem"><?php esc_html_e('Select Package', 'snapbook'); ?></div>
+                <div class="fpb-pkg-cards" id="fpb-pkgGrid"></div>
 
-                <div class="fadd" id="fpb-addonsWrap" style="display:none">
-                    <div class="fadd-title"><?php esc_html_e('Add-ons', 'snapbook'); ?> <span class="fadd-opt">(<?php esc_html_e('Optional', 'snapbook'); ?>)</span></div>
-                    <div class="fadd-grid" id="fpb-addonsGrid"></div>
+                <div class="fpb-addons-box" id="fpb-addonsWrap" style="display:none">
+                    <div class="fpb-addon-title"><?php esc_html_e('Add-ons', 'snapbook'); ?> <span class="fpb-addon-opt">(<?php esc_html_e('Optional', 'snapbook'); ?>)</span></div>
+                    <div class="fpb-addon-grid" id="fpb-addonsGrid"></div>
                 </div>
 
                 <!-- 50% payment toggle — shown right after the add-ons -->
-                <div class="fadd" id="fpb-partialWrap" style="display:none">
-                    <div class="fadd-title"><?php esc_html_e('Payment Option', 'snapbook'); ?></div>
-                    <label class="fadd-card fpb-partial-card" for="fpb-partialToggle">
-                        <input class="ac" type="checkbox" id="fpb-partialToggle" checked>
+                <div class="fpb-addons-box" id="fpb-partialWrap" style="display:none">
+                    <div class="fpb-addon-title"><?php esc_html_e('Payment Option', 'snapbook'); ?></div>
+                    <label class="fpb-addon-card fpb-partial-card" for="fpb-partialToggle">
+                        <input class="fpb-ac" type="checkbox" id="fpb-partialToggle" checked>
                         <span class="fpb-partial-em" aria-hidden="true">50%</span>
-                        <span class="fadd-info">
-                            <span class="fadd-name" id="fpb-partialLabel"><?php echo esc_html(get_option('fpb_partial_option_label', __('Book a slot to 50% Pay', 'snapbook'))); ?></span>
-                            <span class="fadd-desc" id="fpb-partialNote"></span>
+                        <span class="fpb-addon-info">
+                            <span class="fpb-addon-name" id="fpb-partialLabel"><?php echo esc_html(get_option('fpb_partial_option_label', __('Book a slot to 50% Pay', 'snapbook'))); ?></span>
+                            <span class="fpb-addon-desc" id="fpb-partialNote"></span>
                         </span>
                         <span class="fpb-partial-switch" aria-hidden="true"><span class="fpb-partial-knob"></span></span>
                     </label>
@@ -712,7 +714,7 @@ function sb_render_shortcode($opts = [])
                         <span class="fpb-price-label"><?php esc_html_e('Total', 'snapbook'); ?></span>
                         <span class="fpb-price-val" id="fpb-s2Total">—</span>
                     </div>
-                    <div class="fpb-price-cell is-due">
+                    <div class="fpb-price-cell fpb-is-due">
                         <span class="fpb-price-label" id="fpb-s2DueLabel"><?php esc_html_e('Pay now', 'snapbook'); ?></span>
                         <span class="fpb-price-val" id="fpb-s2Due">—</span>
                     </div>
@@ -722,52 +724,52 @@ function sb_render_shortcode($opts = [])
                     </div>
                 </div>
 
-                <div class="fnav">
-                    <button class="btn bo" onclick="fpb.bkGo(1)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
-                    <button class="btn bg" id="fpb-s2NextBtn" onclick="fpb.s2Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
+                <div class="fpb-nav">
+                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(1)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
+                    <button class="fpb-btn fpb-btn-gold" id="fpb-s2NextBtn" onclick="snapbook.s2Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
                 </div>
-                <p id="fpb-s2err" class="ferr"></p>
+                <p id="fpb-s2err" class="fpb-error"></p>
             </div>
         </div>
 
         <!-- STEP 3 — Details (checkout form, fields managed in SnapBook → Settings) -->
-        <div class="fstep" id="fpb-s3">
-            <div class="fstep-inner">
-                <h2 class="ftitle"><?php esc_html_e('Your Details', 'snapbook'); ?></h2>
-                <p class="fsub"><?php esc_html_e('Fill in your booking and contact details.', 'snapbook'); ?></p>
+        <div class="fpb-step" id="fpb-s3">
+            <div class="fpb-step-inner">
+                <h2 class="fpb-title"><?php esc_html_e('Your Details', 'snapbook'); ?></h2>
+                <p class="fpb-sub"><?php esc_html_e('Fill in your booking and contact details.', 'snapbook'); ?></p>
 
-                <div class="fdetails-groups" id="fpb-detailsGrid">
-                    <?php sb_render_checkout_form_fields(); ?>
+                <div class="fpb-details-groups" id="fpb-detailsGrid">
+                    <?php snapbook_render_checkout_form_fields(); ?>
                 </div>
 
-                <div class="fnav">
-                    <button class="btn bo" onclick="fpb.bkGo(2)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
-                    <button class="btn bg" id="fpb-s3NextBtn" onclick="fpb.s3Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
+                <div class="fpb-nav">
+                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(2)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
+                    <button class="fpb-btn fpb-btn-gold" id="fpb-s3NextBtn" onclick="snapbook.s3Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
                 </div>
-                <p id="fpb-s3err" class="ferr"></p>
+                <p id="fpb-s3err" class="fpb-error"></p>
             </div>
         </div>
 
         <!-- STEP 4 — Payment -->
-        <div class="fstep" id="fpb-s4">
-            <div class="fstep-inner" id="fpb-payWrap">
-                <h2 class="ftitle"><?php esc_html_e('Review & Payment', 'snapbook'); ?></h2>
-                <p class="fsub"><?php esc_html_e("Review your booking, choose how you'd like to pay, and confirm.", 'snapbook'); ?></p>
+        <div class="fpb-step" id="fpb-s4">
+            <div class="fpb-step-inner" id="fpb-payWrap">
+                <h2 class="fpb-title"><?php esc_html_e('Review & Payment', 'snapbook'); ?></h2>
+                <p class="fpb-sub"><?php esc_html_e("Review your booking, choose how you'd like to pay, and confirm.", 'snapbook'); ?></p>
 
                 <!-- Live Booking Summary -->
-                <div class="bsum" id="fpb-pay-summary">
+                <div class="fpb-bsum" id="fpb-pay-summary">
                     <h5><?php esc_html_e('Booking Summary', 'snapbook'); ?></h5>
-                    <div class="sumr"><span><?php esc_html_e('Session', 'snapbook'); ?></span><span class="v" id="fpb-sum-session">—</span></div>
-                    <div class="sumr"><span><?php esc_html_e('Package', 'snapbook'); ?></span><span class="v" id="fpb-sum-pkg">—</span></div>
-                    <div class="sumr"><span><?php esc_html_e('Date', 'snapbook'); ?></span><span class="v" id="fpb-sum-date">—</span></div>
-                    <div class="sumr"><span><?php esc_html_e('Add-ons', 'snapbook'); ?></span><span class="v" id="fpb-sum-addons">—</span></div>
-                    <div class="sumr"><span><?php esc_html_e('Total price', 'snapbook'); ?></span><span class="v" id="fpb-sum-price">—</span></div>
-                    <div class="sumt">
+                    <div class="fpb-sumr"><span><?php esc_html_e('Session', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-session">—</span></div>
+                    <div class="fpb-sumr"><span><?php esc_html_e('Package', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-pkg">—</span></div>
+                    <div class="fpb-sumr"><span><?php esc_html_e('Date', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-date">—</span></div>
+                    <div class="fpb-sumr"><span><?php esc_html_e('Add-ons', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-addons">—</span></div>
+                    <div class="fpb-sumr"><span><?php esc_html_e('Total price', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-price">—</span></div>
+                    <div class="fpb-sumt">
                         <div>
-                            <div class="sumtl"><?php esc_html_e('Due Now', 'snapbook'); ?></div>
-                            <div class="sumtd" id="fpb-sum-dep"></div>
+                            <div class="fpb-sumtl"><?php esc_html_e('Due Now', 'snapbook'); ?></div>
+                            <div class="fpb-sumtd" id="fpb-sum-dep"></div>
                         </div>
-                        <div class="sumtn" id="fpb-sum-total">—</div>
+                        <div class="fpb-sumtn" id="fpb-sum-total">—</div>
                     </div>
                     <p class="fpb-sum-note" id="fpb-sum-balance-row" style="display:none">
                         <?php esc_html_e('Remaining balance', 'snapbook'); ?> <strong id="fpb-sum-balance">—</strong> <?php esc_html_e('is due later — we will send you a payment link.', 'snapbook'); ?>
@@ -780,40 +782,40 @@ function sb_render_shortcode($opts = [])
                     <div class="fpb-gateway-list" id="fpb-gatewayList"></div>
                 </div>
 
-                <div class="fnav">
-                    <button class="btn bo" onclick="fpb.bkGo(3)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
-                    <button class="btn bg fpb-checkout-btn" id="fpb-checkoutBtn" onclick="fpb.proceedToCheckout()"><?php echo esc_html($checkout_label); ?> &#8594;</button>
+                <div class="fpb-nav">
+                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(3)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
+                    <button class="fpb-btn fpb-btn-gold fpb-checkout-btn" id="fpb-checkoutBtn" onclick="snapbook.proceedToCheckout()"><?php echo esc_html($checkout_label); ?> &#8594;</button>
                 </div>
-                <p id="fpb-s4err" class="ferr"></p>
+                <p id="fpb-s4err" class="fpb-error"></p>
                 <p id="fpb-checkoutMsg" class="fpb-checkout-msg"></p>
             </div>
             <!-- In-place booking confirmation (direct checkout mode) -->
-            <div class="suc" id="fpb-confirmWrap" style="display:none">
-                <div class="fstep-inner suc-inner">
-                    <div class="suc-icon">✓</div>
-                    <h2 class="ftitle" id="fpb-confirmTitle"><?php echo esc_html(get_option('fpb_confirm_title', __('Booking Confirmed!', 'snapbook'))); ?></h2>
-                    <p class="fsub" id="fpb-confirmNote"></p>
-                    <div class="bsum fpb-confirm-summary">
-                        <div class="sumr"><span><?php esc_html_e('Order', 'snapbook'); ?></span><span class="v" id="fpb-confirmOrder">—</span></div>
-                        <div class="sumr"><span><?php esc_html_e('Payment method', 'snapbook'); ?></span><span class="v" id="fpb-confirmMethod">—</span></div>
-                        <div class="sumr"><span><?php esc_html_e('Amount', 'snapbook'); ?></span><span class="v" id="fpb-confirmAmount">—</span></div>
-                        <div class="sumr"><span><?php esc_html_e('Status', 'snapbook'); ?></span><span class="v" id="fpb-confirmStatus">—</span></div>
+            <div class="fpb-suc" id="fpb-confirmWrap" style="display:none">
+                <div class="fpb-step-inner fpb-suc-inner">
+                    <div class="fpb-suc-icon">✓</div>
+                    <h2 class="fpb-title" id="fpb-confirmTitle"><?php echo esc_html(get_option('fpb_confirm_title', __('Booking Confirmed!', 'snapbook'))); ?></h2>
+                    <p class="fpb-sub" id="fpb-confirmNote"></p>
+                    <div class="fpb-bsum fpb-confirm-summary">
+                        <div class="fpb-sumr"><span><?php esc_html_e('Order', 'snapbook'); ?></span><span class="fpb-v" id="fpb-confirmOrder">—</span></div>
+                        <div class="fpb-sumr"><span><?php esc_html_e('Payment method', 'snapbook'); ?></span><span class="fpb-v" id="fpb-confirmMethod">—</span></div>
+                        <div class="fpb-sumr"><span><?php esc_html_e('Amount', 'snapbook'); ?></span><span class="fpb-v" id="fpb-confirmAmount">—</span></div>
+                        <div class="fpb-sumr"><span><?php esc_html_e('Status', 'snapbook'); ?></span><span class="fpb-v" id="fpb-confirmStatus">—</span></div>
                     </div>
-                    <div class="fnav" style="justify-content:center;margin-top:1.6rem">
-                        <a class="btn bg" id="fpb-confirmPayBtn" href="#" style="display:none"><?php esc_html_e('Complete Payment', 'snapbook'); ?> &#8594;</a>
-                        <a class="btn bo" id="fpb-confirmViewBtn" href="#" style="display:none"><?php esc_html_e('View Order Details', 'snapbook'); ?></a>
-                        <a class="btn bo" id="fpb-confirmWaBtn" href="#" target="_blank" rel="noopener" style="display:none"><?php echo esc_html(get_option('fpb_whatsapp_btn', 'Message us on WhatsApp')); ?></a>
+                    <div class="fpb-nav" style="justify-content:center;margin-top:1.6rem">
+                        <a class="fpb-btn fpb-btn-gold" id="fpb-confirmPayBtn" href="#" style="display:none"><?php esc_html_e('Complete Payment', 'snapbook'); ?> &#8594;</a>
+                        <a class="fpb-btn fpb-btn-outline" id="fpb-confirmViewBtn" href="#" style="display:none"><?php esc_html_e('View Order Details', 'snapbook'); ?></a>
+                        <a class="fpb-btn fpb-btn-outline" id="fpb-confirmWaBtn" href="#" target="_blank" rel="noopener" style="display:none"><?php echo esc_html(get_option('fpb_whatsapp_btn', 'Message us on WhatsApp')); ?></a>
                     </div>
                 </div>
             </div>
             <!-- Success state (fallback email flow) -->
-            <div class="suc" id="fpb-sucWrap" style="display:none">
-                <div class="fstep-inner suc-inner">
-                    <div class="suc-icon">✓</div>
-                    <h2 class="ftitle"><?php echo esc_html(get_option('fpb_success_title', 'Booking Requested!')); ?></h2>
+            <div class="fpb-suc" id="fpb-sucWrap" style="display:none">
+                <div class="fpb-step-inner fpb-suc-inner">
+                    <div class="fpb-suc-icon">✓</div>
+                    <h2 class="fpb-title"><?php echo esc_html(get_option('fpb_success_title', 'Booking Requested!')); ?></h2>
                     <p><?php echo esc_html(get_option('fpb_success_msg', "We've received your request and will confirm availability within 24 hours. A confirmation will be sent to")); ?> <strong id="fpb-sucEmail"></strong>.</p>
-                    <div class="fnav" style="justify-content:center;margin-top:2rem">
-                        <a class="btn bg" id="fpb-waLink" href="#" target="_blank" rel="noopener"><?php echo esc_html(get_option('fpb_whatsapp_btn', 'Message us on WhatsApp')); ?></a>
+                    <div class="fpb-nav" style="justify-content:center;margin-top:2rem">
+                        <a class="fpb-btn fpb-btn-gold" id="fpb-waLink" href="#" target="_blank" rel="noopener"><?php echo esc_html(get_option('fpb_whatsapp_btn', 'Message us on WhatsApp')); ?></a>
                     </div>
                 </div>
             </div>

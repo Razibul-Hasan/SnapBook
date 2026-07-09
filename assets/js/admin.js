@@ -1,8 +1,8 @@
-/* global fpbAdmin, sbAdmin, fpbBookings, sbBookings */
+/* global snapbookAdmin, snapbookBookings */
 (function () {
   "use strict";
 
-  const adminData = window.fpbAdmin || window.sbAdmin || {};
+  const adminData = window.snapbookAdmin || {};
   const ajaxUrl = adminData.ajaxUrl || "";
   const nonce = adminData.nonce || "";
 
@@ -47,7 +47,7 @@
     const el = document.getElementById(id);
     if (!el) return;
     el.textContent = text || "";
-    el.className = "fpb-form-msg " + (ok ? "ok" : "err");
+    el.className = "fpb-form-msg " + (ok ? "fpb-ok" : "fpb-err");
   }
 
   // Copy text to the clipboard, with a fallback for plain-HTTP admin where
@@ -351,7 +351,7 @@
 
   function bindBookingStatusUpdate() {
     document
-      .querySelectorAll(".fpb-status-select, .sb-status-select")
+      .querySelectorAll(".sb-status-select")
       .forEach((sel) => {
         const row = sel.closest("tr");
         const hintEl = row ? row.querySelector(".fpb-status-hint") : null;
@@ -366,16 +366,16 @@
 
           this.disabled = true;
           if (hintEl) {
-            hintEl.classList.remove("ok", "err");
+            hintEl.classList.remove("fpb-ok", "fpb-err");
             hintEl.textContent = "Saving...";
           }
 
-          post("fpb_admin_update_booking_status", { id, status })
+          post("snapbook_admin_update_booking_status", { id, status })
             .then((res) => {
               if (!res.success) {
                 this.value = previousValue;
                 if (hintEl) {
-                  hintEl.classList.add("err");
+                  hintEl.classList.add("fpb-err");
                   hintEl.textContent = "Could not update status.";
                 }
                 window.alert("Could not update status.");
@@ -383,15 +383,9 @@
               }
 
               this.dataset.prevValue = status;
-              const badge =
-                this.closest("tr")?.querySelector(".fpb-badge") ||
-                this.closest("tr")?.querySelector(".sb-badge");
+              const badge = this.closest("tr")?.querySelector(".sb-badge");
               if (badge) {
-                const base =
-                  badge.className.indexOf("sb-badge") !== -1
-                    ? "sb-badge"
-                    : "fpb-badge";
-                badge.className = base + " " + base + "-" + status;
+                badge.className = "sb-badge sb-badge-" + status;
                 badge.textContent = formatStatusLabel(status);
               }
 
@@ -429,8 +423,8 @@
               }
 
               if (hintEl) {
-                hintEl.classList.remove("err");
-                hintEl.classList.add("ok");
+                hintEl.classList.remove("fpb-err");
+                hintEl.classList.add("fpb-ok");
                 hintEl.textContent =
                   targetOrderId > 0
                     ? targetLabel + " #" + targetOrderId + " updated"
@@ -440,7 +434,7 @@
             .catch(() => {
               this.value = previousValue;
               if (hintEl) {
-                hintEl.classList.add("err");
+                hintEl.classList.add("fpb-err");
                 hintEl.textContent = "Network error while saving.";
               }
               window.alert("Network error. Could not update status.");
@@ -460,9 +454,7 @@
         const row = btn.closest("tr");
         if (!row) return;
 
-        const select =
-          row.querySelector(".sb-status-select") ||
-          row.querySelector(".fpb-status-select");
+        const select = row.querySelector(".sb-status-select");
         if (!select) return;
 
         const nextStatus = btn.dataset.status || "";
@@ -485,7 +477,7 @@
         const prevValue = this.dataset.prevValue || this.value;
 
         this.disabled = true;
-        post("fpb_admin_update_wc_order_status", { order_id: orderId, status })
+        post("snapbook_admin_update_wc_order_status", { order_id: orderId, status })
           .then((res) => {
             if (!res.success) {
               this.value = prevValue;
@@ -500,21 +492,15 @@
 
             // Update badge and hint in the same row (no reload)
             const row = this.closest("tr");
-            const badge =
-              row?.querySelector(".fpb-badge") ||
-              row?.querySelector(".sb-badge");
+            const badge = row?.querySelector(".sb-badge");
             if (badge) {
-              const base =
-                badge.className.indexOf("sb-badge") !== -1
-                  ? "sb-badge"
-                  : "fpb-badge";
-              badge.className = base + " " + base + "-" + status;
+              badge.className = "sb-badge sb-badge-" + status;
               badge.textContent = formatStatusLabel(status);
             }
             const hintEl = row ? row.querySelector(".fpb-status-hint") : null;
             if (hintEl) {
-              hintEl.classList.remove("err");
-              hintEl.classList.add("ok");
+              hintEl.classList.remove("fpb-err");
+              hintEl.classList.add("fpb-ok");
               hintEl.textContent = "Order #" + orderId + " updated";
             }
           })
@@ -558,7 +544,7 @@
         btn.disabled = true;
         btn.textContent = "Sending...";
 
-        post("fpb_admin_send_balance_reminder", { id })
+        post("snapbook_admin_send_balance_reminder", { id })
           .then((res) => {
             if (!res.success) {
               window.alert(
@@ -644,7 +630,7 @@
     function say(text, ok) {
       if (!msg) return;
       msg.textContent = text;
-      msg.className = "fpb-modal-pay-msg " + (ok ? "ok" : "err");
+      msg.className = "fpb-modal-pay-msg " + (ok ? "fpb-ok" : "fpb-err");
     }
 
     const copyBtn = container.querySelector(".fpb-modal-copy-link");
@@ -668,7 +654,7 @@
         const orig = emailBtn.textContent;
         emailBtn.disabled = true;
         emailBtn.textContent = "Sending…";
-        post("fpb_admin_send_balance_reminder", { id: bid })
+        post("snapbook_admin_send_balance_reminder", { id: bid })
           .then((res) => {
             if (res.success) {
               say("Balance email sent to the customer.", true);
@@ -689,20 +675,12 @@
   }
 
   function bindBookingModal() {
-    const modal =
-      document.getElementById("fpb-booking-modal") ||
-      document.getElementById("sb-booking-modal");
+    const modal = document.getElementById("sb-booking-modal");
     if (!modal) return;
 
-    const modalTitle =
-      modal.querySelector(".fpb-modal-head span") ||
-      modal.querySelector(".sb-modal-head span");
-    const modalBody =
-      modal.querySelector(".fpb-modal-body") ||
-      modal.querySelector(".sb-modal-body");
-    const closeBtn =
-      modal.querySelector(".fpb-modal-close") ||
-      modal.querySelector(".sb-modal-close");
+    const modalTitle = modal.querySelector(".sb-modal-head span");
+    const modalBody = modal.querySelector(".sb-modal-body");
+    const closeBtn = modal.querySelector(".sb-modal-close");
 
     function closeModal() {
       modal.style.display = "none";
@@ -713,11 +691,11 @@
       if (e.target === modal) closeModal();
     });
 
-    document.querySelectorAll(".fpb-btn-view, .sb-btn-view").forEach((btn) => {
+    document.querySelectorAll(".sb-btn-view").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.id;
         // Look up booking data at click time, not binding time
-        const sourceBookings = window.fpbBookings || window.sbBookings;
+        const sourceBookings = window.snapbookBookings;
         const data = Array.isArray(sourceBookings) ? sourceBookings : [];
         const b = data.find((x) => String(x.id) === String(id));
         if (!b || !modalTitle || !modalBody) {
@@ -878,7 +856,7 @@
       e.preventDefault();
       const data = formToObject(form);
 
-      post("fpb_admin_save_settings", data)
+      post("snapbook_admin_save_settings", data)
         .then((res) => {
           if (!res.success) {
             setMsg(
@@ -935,7 +913,7 @@
 
       let html = "";
       for (let i = 0; i < startDow; i++) {
-        html += '<div class="fpb-cal-admin-day empty"></div>';
+        html += '<div class="fpb-cal-admin-day fpb-day-empty"></div>';
       }
 
       for (let d = 1; d <= days; d++) {
@@ -944,9 +922,9 @@
         const isPast = dt < today;
         const status = dateMap[ds] || "available";
 
-        let cls = "fpb-cal-admin-day " + status;
-        if (isPast) cls += " past";
-        if (dt.getTime() === today.getTime()) cls += " today";
+        let cls = "fpb-cal-admin-day fpb-" + status;
+        if (isPast) cls += " fpb-past";
+        if (dt.getTime() === today.getTime()) cls += " fpb-today";
 
         html +=
           '<div class="' + cls + '" data-date="' + ds + '">' + d + "</div>";
@@ -955,14 +933,14 @@
       grid.innerHTML = html;
 
       grid.querySelectorAll(".fpb-cal-admin-day").forEach((cell) => {
-        if (cell.classList.contains("empty") || cell.classList.contains("past"))
+        if (cell.classList.contains("fpb-day-empty") || cell.classList.contains("fpb-past"))
           return;
 
         cell.addEventListener("click", () => {
           const ds = cell.dataset.date;
           if (!ds) return;
 
-          post("fpb_admin_toggle_date", { date: ds })
+          post("snapbook_admin_toggle_date", { date: ds })
             .then((res) => {
               if (!res.success) {
                 if (msg)
@@ -997,7 +975,7 @@
       renderCalendar();
     });
 
-    post("fpb_admin_get_dates", {})
+    post("snapbook_admin_get_dates", {})
       .then((res) => {
         if (res.success) {
           dateMap = res.data || {};
@@ -1013,10 +991,6 @@
       });
   }
 
-  window.fpbAdminCreateProduct = function () {
-    window.alert("WooCommerce product auto-create is not configured yet.");
-  };
-
   bindBookingStatusUpdate();
   bindRowActionMenus();
   bindQuickPaymentActions();
@@ -1027,24 +1001,24 @@
   bindSettingsForm();
   bindCrudForm(
     "fpb-session-form",
-    "fpb_admin_save_session",
+    "snapbook_admin_save_session",
     "fpb-session-msg",
     ["active"],
   );
   bindCrudForm(
     "fpb-package-form",
-    "fpb_admin_save_package",
+    "snapbook_admin_save_package",
     "fpb-package-msg",
     ["featured", "active"],
   );
-  bindCrudForm("fpb-addon-form", "fpb_admin_save_addon", "fpb-addon-msg", [
+  bindCrudForm("fpb-addon-form", "snapbook_admin_save_addon", "fpb-addon-msg", [
     "active",
   ]);
   bindPackageChecklist();
-  bindDeleteButtons(".fpb-del-session", "fpb_admin_delete_session");
-  bindDeleteButtons(".fpb-del-package", "fpb_admin_delete_package");
+  bindDeleteButtons(".fpb-del-session", "snapbook_admin_delete_session");
+  bindDeleteButtons(".fpb-del-package", "snapbook_admin_delete_package");
   bindPackageLinkCopy();
-  bindDeleteButtons(".fpb-del-addon", "fpb_admin_delete_addon");
+  bindDeleteButtons(".fpb-del-addon", "snapbook_admin_delete_addon");
   bindDateSlotsCalendar();
   bindBalanceReminderButtons();
   bindBalancePayLinkCopy();

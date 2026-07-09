@@ -1,19 +1,19 @@
 <?php
 defined('ABSPATH') || exit;
 
-function fpb_get_partial_block_days()
+function snapbook_get_partial_block_days()
 {
     return max(0, (int) get_option('fpb_partial_block_days', 0));
 }
 
-function fpb_can_use_partial_payment_for_date($session_date)
+function snapbook_can_use_partial_payment_for_date($session_date)
 {
     $session_date = sanitize_text_field((string) $session_date);
     if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $session_date)) {
         return false;
     }
 
-    $block_days = fpb_get_partial_block_days();
+    $block_days = snapbook_get_partial_block_days();
     if ($block_days <= 0) {
         return true;
     }
@@ -30,13 +30,11 @@ function fpb_can_use_partial_payment_for_date($session_date)
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Load session types + packages + add-ons
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_sb_get_data',        'sb_ajax_get_data');
-add_action('wp_ajax_nopriv_sb_get_data', 'sb_ajax_get_data');
-add_action('wp_ajax_fpb_get_data',        'sb_ajax_get_data');
-add_action('wp_ajax_nopriv_fpb_get_data', 'sb_ajax_get_data');
-function sb_ajax_get_data()
+add_action('wp_ajax_snapbook_get_data',        'snapbook_ajax_get_data');
+add_action('wp_ajax_nopriv_snapbook_get_data', 'snapbook_ajax_get_data');
+function snapbook_ajax_get_data()
 {
-    check_ajax_referer('fpb_nonce', 'nonce');
+    check_ajax_referer('snapbook_nonce', 'nonce');
     global $wpdb;
     $pfx = $wpdb->prefix . 'fpb_';
 
@@ -48,10 +46,10 @@ function sb_ajax_get_data()
         'sessions' => $sessions,
         'packages' => $packages,
         'addons'   => $addons,
-        'currency' => sb_get_currency_symbol(),
+        'currency' => snapbook_get_currency_symbol(),
         'depositPct' => ((int) get_option('fpb_enable_partial_payment', 1) === 1 ? 50 : 100),
         'partialPaymentEnabled' => ((int) get_option('fpb_enable_partial_payment', 1) === 1),
-        'partialBlockDays' => fpb_get_partial_block_days(),
+        'partialBlockDays' => snapbook_get_partial_block_days(),
         'partialOptionLabel' => get_option('fpb_partial_option_label', __('Book a slot to 50% Pay', 'snapbook')),
     ]);
 }
@@ -59,20 +57,18 @@ function sb_ajax_get_data()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Live payment preview for booking summary
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_sb_preview_payment',        'sb_ajax_preview_payment');
-add_action('wp_ajax_nopriv_sb_preview_payment', 'sb_ajax_preview_payment');
-add_action('wp_ajax_fpb_preview_payment',        'sb_ajax_preview_payment');
-add_action('wp_ajax_nopriv_fpb_preview_payment', 'sb_ajax_preview_payment');
-function sb_ajax_preview_payment()
+add_action('wp_ajax_snapbook_preview_payment',        'snapbook_ajax_preview_payment');
+add_action('wp_ajax_nopriv_snapbook_preview_payment', 'snapbook_ajax_preview_payment');
+function snapbook_ajax_preview_payment()
 {
-    check_ajax_referer('fpb_nonce', 'nonce');
+    check_ajax_referer('snapbook_nonce', 'nonce');
 
     $total = max(0, floatval(wp_unslash($_POST['total_raw'] ?? 0)));
     $session_date = sanitize_text_field(wp_unslash($_POST['session_date'] ?? ''));
     $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
 
     $partial_enabled = ((int) get_option('fpb_enable_partial_payment', 1) === 1);
-    $is_eligible = $partial_enabled && fpb_can_use_partial_payment_for_date($session_date);
+    $is_eligible = $partial_enabled && snapbook_can_use_partial_payment_for_date($session_date);
     $pay_pct = ($partial_enabled && $use_deposit_requested && $is_eligible) ? 50 : 100;
 
     $due_today = round(($total * $pay_pct) / 100, 2);
@@ -90,13 +86,11 @@ function sb_ajax_preview_payment()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Get booked/blocked dates for calendar
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_sb_get_dates',        'sb_ajax_get_dates');
-add_action('wp_ajax_nopriv_sb_get_dates', 'sb_ajax_get_dates');
-add_action('wp_ajax_fpb_get_dates',        'sb_ajax_get_dates');
-add_action('wp_ajax_nopriv_fpb_get_dates', 'sb_ajax_get_dates');
-function sb_ajax_get_dates()
+add_action('wp_ajax_snapbook_get_dates',        'snapbook_ajax_get_dates');
+add_action('wp_ajax_nopriv_snapbook_get_dates', 'snapbook_ajax_get_dates');
+function snapbook_ajax_get_dates()
 {
-    check_ajax_referer('fpb_nonce', 'nonce');
+    check_ajax_referer('snapbook_nonce', 'nonce');
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
     $rows = $wpdb->get_results("SELECT date_str, status FROM {$pfx}dates WHERE status != 'available' ORDER BY date_str"); // phpcs:ignore
@@ -110,13 +104,11 @@ function sb_ajax_get_dates()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Get enabled WooCommerce payment gateways
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_sb_get_payment_gateways',        'sb_ajax_get_payment_gateways');
-add_action('wp_ajax_nopriv_sb_get_payment_gateways', 'sb_ajax_get_payment_gateways');
-add_action('wp_ajax_fpb_get_payment_gateways',        'sb_ajax_get_payment_gateways');
-add_action('wp_ajax_nopriv_fpb_get_payment_gateways', 'sb_ajax_get_payment_gateways');
-function sb_ajax_get_payment_gateways()
+add_action('wp_ajax_snapbook_get_payment_gateways',        'snapbook_ajax_get_payment_gateways');
+add_action('wp_ajax_nopriv_snapbook_get_payment_gateways', 'snapbook_ajax_get_payment_gateways');
+function snapbook_ajax_get_payment_gateways()
 {
-    check_ajax_referer('fpb_nonce', 'nonce');
+    check_ajax_referer('snapbook_nonce', 'nonce');
 
     if (! class_exists('WooCommerce')) {
         wp_send_json_success(['gateways' => []]);
@@ -131,7 +123,7 @@ function sb_ajax_get_payment_gateways()
                 'title'       => wp_kses_post($gateway->get_title()),
                 'description' => wp_kses_post($gateway->get_description()),
                 'icon'        => wp_kses_post($gateway->get_icon()),
-                'needs_payment_page' => ! sb_gateway_processes_offline($gateway),
+                'needs_payment_page' => ! snapbook_gateway_processes_offline($gateway),
             ];
         }
     }
@@ -142,13 +134,11 @@ function sb_ajax_get_payment_gateways()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Add to WooCommerce cart + return checkout URL
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_sb_add_to_cart',        'sb_ajax_add_to_cart');
-add_action('wp_ajax_nopriv_sb_add_to_cart', 'sb_ajax_add_to_cart');
-add_action('wp_ajax_fpb_add_to_cart',        'sb_ajax_add_to_cart');
-add_action('wp_ajax_nopriv_fpb_add_to_cart', 'sb_ajax_add_to_cart');
-function sb_ajax_add_to_cart()
+add_action('wp_ajax_snapbook_add_to_cart',        'snapbook_ajax_add_to_cart');
+add_action('wp_ajax_nopriv_snapbook_add_to_cart', 'snapbook_ajax_add_to_cart');
+function snapbook_ajax_add_to_cart()
 {
-    check_ajax_referer('fpb_nonce', 'nonce');
+    check_ajax_referer('snapbook_nonce', 'nonce');
 
     if (! class_exists('WooCommerce')) {
         wp_send_json_error(['message' => __('WooCommerce is required for online checkout.', 'snapbook')]);
@@ -156,19 +146,19 @@ function sb_ajax_add_to_cart()
 
     $product_id = (int) get_option('fpb_wc_product_id', 0);
     if (! $product_id || get_post_status($product_id) === false) {
-        fpb_create_wc_product();
+        snapbook_create_wc_product();
         $product_id = (int) get_option('fpb_wc_product_id', 0);
     }
     if (! $product_id) {
         wp_send_json_error(['message' => __('Booking product not configured. Please contact support.', 'snapbook')]);
     }
 
-    $cur      = sb_get_currency_symbol();
+    $cur      = snapbook_get_currency_symbol();
     $total    = floatval(wp_unslash($_POST['total_raw'] ?? 0));
     $partial_enabled = ((int) get_option('fpb_enable_partial_payment', 1) === 1);
     $session_date = sanitize_text_field(wp_unslash($_POST['session_date'] ?? ''));
     $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
-    $can_use_deposit = $partial_enabled && $use_deposit_requested && fpb_can_use_partial_payment_for_date($session_date);
+    $can_use_deposit = $partial_enabled && $use_deposit_requested && snapbook_can_use_partial_payment_for_date($session_date);
     $pay_pct  = $can_use_deposit ? 50 : 100;
     $deposit  = round(($total * $pay_pct) / 100, 2);
 
@@ -221,8 +211,8 @@ function sb_ajax_add_to_cart()
    FRONT-END — Intercept ?fpb_checkout=TOKEN, add to WC cart,
    then forward to the real WooCommerce checkout page.
 ═══════════════════════════════════════════════════════════════ */
-add_action('template_redirect', 'sb_handle_checkout_redirect');
-function sb_handle_checkout_redirect()
+add_action('template_redirect', 'snapbook_handle_checkout_redirect');
+function snapbook_handle_checkout_redirect()
 {
     $token = sanitize_text_field(wp_unslash($_GET['fpb_checkout'] ?? '')); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
     if (! $token || ! class_exists('WooCommerce')) {
@@ -257,13 +247,11 @@ function sb_handle_checkout_redirect()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Fallback email submit (when WooCommerce not active)
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_sb_submit',        'sb_ajax_submit');
-add_action('wp_ajax_nopriv_sb_submit', 'sb_ajax_submit');
-add_action('wp_ajax_fpb_submit',        'sb_ajax_submit');
-add_action('wp_ajax_nopriv_fpb_submit', 'sb_ajax_submit');
-function sb_ajax_submit()
+add_action('wp_ajax_snapbook_submit',        'snapbook_ajax_submit');
+add_action('wp_ajax_nopriv_snapbook_submit', 'snapbook_ajax_submit');
+function snapbook_ajax_submit()
 {
-    check_ajax_referer('fpb_nonce', 'nonce');
+    check_ajax_referer('snapbook_nonce', 'nonce');
 
     $name     = sanitize_text_field(wp_unslash($_POST['name']     ?? ''));
     $email    = sanitize_email(wp_unslash($_POST['email']    ?? ''));
@@ -317,11 +305,11 @@ function sb_ajax_submit()
 /* ═══════════════════════════════════════════════════════════════
    ADMIN — CRUD: Session Types
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_admin_save_settings', 'fpb_admin_save_settings');
+add_action('wp_ajax_snapbook_admin_save_settings', 'snapbook_admin_save_settings');
 
-function fpb_admin_save_settings()
+function snapbook_admin_save_settings()
 {
-    check_ajax_referer('fpb_settings', 'fpb_settings_nonce');
+    check_ajax_referer('snapbook_settings', 'snapbook_settings_nonce');
     if (! current_user_can('manage_options')) {
         wp_send_json_error(['message' => 'Permission denied.']);
     }
@@ -331,11 +319,11 @@ function fpb_admin_save_settings()
     }
     update_option('fpb_admin_email', sanitize_email(wp_unslash($_POST['fpb_admin_email'] ?? '')) ?: get_option('admin_email'));
     update_option('fpb_booking_page_id', absint(wp_unslash($_POST['fpb_booking_page_id'] ?? 0)));
-    if (function_exists('sb_sanitize_custom_checkout_fields')) {
-        update_option('fpb_checkout_custom_fields', sb_sanitize_custom_checkout_fields($_POST)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+    if (function_exists('snapbook_sanitize_custom_checkout_fields')) {
+        update_option('fpb_checkout_custom_fields', snapbook_sanitize_custom_checkout_fields($_POST)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
     }
-    if (function_exists('sb_default_theme_colors')) {
-        $theme_defaults = sb_default_theme_colors();
+    if (function_exists('snapbook_default_theme_colors')) {
+        $theme_defaults = snapbook_default_theme_colors();
         update_option('fpb_theme_primary', sanitize_hex_color(wp_unslash($_POST['fpb_theme_primary'] ?? '')) ?: $theme_defaults['primary']);
         update_option('fpb_theme_accent', sanitize_hex_color(wp_unslash($_POST['fpb_theme_accent'] ?? '')) ?: $theme_defaults['accent']);
     }
@@ -347,25 +335,25 @@ function fpb_admin_save_settings()
     update_option('fpb_balance_reminder_hours', max(1, absint(wp_unslash($_POST['fpb_balance_reminder_hours'] ?? 24))));
     update_option('fpb_balance_reminder_template', wp_kses_post(wp_unslash($_POST['fpb_balance_reminder_template'] ?? '')));
 
-    if (function_exists('sb_sanitize_checkout_mode')) {
-        update_option('fpb_checkout_mode', sb_sanitize_checkout_mode(sanitize_key(wp_unslash($_POST['fpb_checkout_mode'] ?? 'direct'))));
+    if (function_exists('snapbook_sanitize_checkout_mode')) {
+        update_option('fpb_checkout_mode', snapbook_sanitize_checkout_mode(sanitize_key(wp_unslash($_POST['fpb_checkout_mode'] ?? 'direct'))));
     }
-    if (function_exists('sb_sanitize_checkout_field_config')) {
-        update_option('fpb_checkout_form_fields', sb_sanitize_checkout_field_config($_POST)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+    if (function_exists('snapbook_sanitize_checkout_field_config')) {
+        update_option('fpb_checkout_form_fields', snapbook_sanitize_checkout_field_config($_POST)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
     }
 
     wp_send_json_success();
 }
 
-add_action('wp_ajax_fpb_admin_send_balance_reminder', 'fpb_admin_send_balance_reminder');
-function fpb_admin_send_balance_reminder()
+add_action('wp_ajax_snapbook_admin_send_balance_reminder', 'snapbook_admin_send_balance_reminder');
+function snapbook_admin_send_balance_reminder()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) {
         wp_send_json_error(['message' => 'Permission denied.']);
     }
 
-    if (! function_exists('fpb_send_balance_reminder_email')) {
+    if (! function_exists('snapbook_send_balance_reminder_email')) {
         wp_send_json_error(['message' => 'Reminder function unavailable.']);
     }
 
@@ -380,7 +368,7 @@ function fpb_admin_send_balance_reminder()
         wp_send_json_error(['message' => 'Booking order not found.']);
     }
 
-    $sent = fpb_send_balance_reminder_email((int) $booking->order_id, true);
+    $sent = snapbook_send_balance_reminder_email((int) $booking->order_id, true);
     if (! $sent) {
         wp_send_json_error(['message' => 'Reminder was not sent (already paid or data missing).']);
     }
@@ -388,12 +376,12 @@ function fpb_admin_send_balance_reminder()
     wp_send_json_success(['message' => 'Reminder email sent.']);
 }
 
-add_action('wp_ajax_fpb_admin_save_session',   'fpb_admin_save_session');
-add_action('wp_ajax_fpb_admin_delete_session', 'fpb_admin_delete_session');
+add_action('wp_ajax_snapbook_admin_save_session',   'snapbook_admin_save_session');
+add_action('wp_ajax_snapbook_admin_delete_session', 'snapbook_admin_delete_session');
 
-function fpb_admin_save_session()
+function snapbook_admin_save_session()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
@@ -430,9 +418,9 @@ function fpb_admin_save_session()
     wp_send_json_success(['id' => $id, 'slug' => $data['slug']]);
 }
 
-function sb_admin_delete_session()
+function snapbook_admin_delete_session()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $pfx = $wpdb->prefix . 'fpb_';
@@ -441,22 +429,15 @@ function sb_admin_delete_session()
     wp_send_json_success();
 }
 
-if (!function_exists('fpb_admin_delete_session')) {
-    function fpb_admin_delete_session()
-    {
-        sb_admin_delete_session();
-    }
-}
-
 /* ═══════════════════════════════════════════════════════════════
    ADMIN — CRUD: Packages
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_admin_save_package',   'fpb_admin_save_package');
-add_action('wp_ajax_fpb_admin_delete_package', 'fpb_admin_delete_package');
+add_action('wp_ajax_snapbook_admin_save_package',   'snapbook_admin_save_package');
+add_action('wp_ajax_snapbook_admin_delete_package', 'snapbook_admin_delete_package');
 
-function fpb_admin_save_package()
+function snapbook_admin_save_package()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
@@ -479,12 +460,12 @@ function fpb_admin_save_package()
         // Share-link slug is stable: kept on rename, only filled when missing.
         $existing_slug = (string) $wpdb->get_var($wpdb->prepare("SELECT slug FROM {$pfx}packages WHERE id=%d", $id)); // phpcs:ignore
         if ($existing_slug === '') {
-            $data['slug'] = sb_unique_package_slug($data['name'], $id);
+            $data['slug'] = snapbook_unique_package_slug($data['name'], $id);
         }
         $result = $wpdb->update("{$pfx}packages", $data, ['id' => $id]); // phpcs:ignore
         if ($result === false) wp_send_json_error(['message' => 'Database error: ' . $wpdb->last_error]);
     } else {
-        $data['slug'] = sb_unique_package_slug($data['name']);
+        $data['slug'] = snapbook_unique_package_slug($data['name']);
         $result = $wpdb->insert("{$pfx}packages", $data); // phpcs:ignore
         if ($result === false) wp_send_json_error(['message' => 'Database error: ' . $wpdb->last_error]);
         $id = $wpdb->insert_id;
@@ -492,31 +473,24 @@ function fpb_admin_save_package()
     wp_send_json_success(['id' => $id]);
 }
 
-function sb_admin_delete_package()
+function snapbook_admin_delete_package()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $wpdb->delete($wpdb->prefix . 'fpb_packages', ['id' => absint(wp_unslash($_POST['id'] ?? 0))]); // phpcs:ignore
     wp_send_json_success();
 }
 
-if (!function_exists('fpb_admin_delete_package')) {
-    function fpb_admin_delete_package()
-    {
-        sb_admin_delete_package();
-    }
-}
-
 /* ═══════════════════════════════════════════════════════════════
    ADMIN — CRUD: Add-ons
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_admin_save_addon',   'fpb_admin_save_addon');
-add_action('wp_ajax_fpb_admin_delete_addon', 'fpb_admin_delete_addon');
+add_action('wp_ajax_snapbook_admin_save_addon',   'snapbook_admin_save_addon');
+add_action('wp_ajax_snapbook_admin_delete_addon', 'snapbook_admin_delete_addon');
 
-function fpb_admin_save_addon()
+function snapbook_admin_save_addon()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
@@ -552,31 +526,24 @@ function fpb_admin_save_addon()
     wp_send_json_success(['id' => $id]);
 }
 
-function sb_admin_delete_addon()
+function snapbook_admin_delete_addon()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $wpdb->delete($wpdb->prefix . 'fpb_addons', ['id' => absint(wp_unslash($_POST['id'] ?? 0))]); // phpcs:ignore
     wp_send_json_success();
 }
 
-if (!function_exists('fpb_admin_delete_addon')) {
-    function fpb_admin_delete_addon()
-    {
-        sb_admin_delete_addon();
-    }
-}
-
 /* ═══════════════════════════════════════════════════════════════
    ADMIN — Date Slots: get / toggle
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_admin_get_dates',    'fpb_admin_get_dates');
-add_action('wp_ajax_fpb_admin_toggle_date',  'fpb_admin_toggle_date');
+add_action('wp_ajax_snapbook_admin_get_dates',    'snapbook_admin_get_dates');
+add_action('wp_ajax_snapbook_admin_toggle_date',  'snapbook_admin_toggle_date');
 
-function fpb_admin_get_dates()
+function snapbook_admin_get_dates()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
@@ -586,9 +553,9 @@ function fpb_admin_get_dates()
     wp_send_json_success($out);
 }
 
-function fpb_admin_toggle_date()
+function snapbook_admin_toggle_date()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
@@ -615,10 +582,10 @@ function fpb_admin_toggle_date()
 /* ═══════════════════════════════════════════════════════════════
    ADMIN — Update booking status
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_fpb_admin_update_booking_status', 'fpb_admin_update_booking_status');
-function fpb_admin_update_booking_status()
+add_action('wp_ajax_snapbook_admin_update_booking_status', 'snapbook_admin_update_booking_status');
+function snapbook_admin_update_booking_status()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) wp_send_json_error();
     global $wpdb;
     $id     = absint(wp_unslash($_POST['id'] ?? 0));
@@ -700,10 +667,10 @@ function fpb_admin_update_booking_status()
     wp_send_json_success($response);
 }
 
-add_action('wp_ajax_fpb_admin_update_wc_order_status', 'fpb_admin_update_wc_order_status');
-function fpb_admin_update_wc_order_status()
+add_action('wp_ajax_snapbook_admin_update_wc_order_status', 'snapbook_admin_update_wc_order_status');
+function snapbook_admin_update_wc_order_status()
 {
-    check_ajax_referer('fpb_admin_nonce', 'nonce');
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
     if (! current_user_can('manage_options')) {
         wp_send_json_error(['message' => 'Permission denied.']);
     }

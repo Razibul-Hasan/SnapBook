@@ -1,7 +1,7 @@
 <?php
 /**
  * Chrome-less order-pay page, loaded inside the booking form's payment
- * iframe (?sb_embed=1 on the order-pay endpoint). Gateway scripts load
+ * iframe (?snapbook_embed=1 on the order-pay endpoint). Gateway scripts load
  * through wp_head()/wp_footer() exactly as on the normal checkout page,
  * so PayPal / card gateways render their own secure fields here.
  */

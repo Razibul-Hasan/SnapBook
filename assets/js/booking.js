@@ -1,4 +1,4 @@
-/* global fpbData */
+/* global snapbookData */
 (function () {
   "use strict";
 
@@ -22,12 +22,13 @@
   // The param stays in the URL, so a refresh keeps the pre-selection.
   let preselectPkg = null;
 
-  const cur = fpbData.currency || "e";
-  const checkoutMode = fpbData.checkoutMode === "redirect" ? "redirect" : "direct";
-  let partialPaymentEnabled = !!fpbData.partialPaymentEnabled;
-  let partialBlockDays = parseInt(fpbData.partialBlockDays || 0, 10) || 0;
+  const cur = snapbookData.currency || "e";
+  const checkoutMode =
+    snapbookData.checkoutMode === "redirect" ? "redirect" : "direct";
+  let partialPaymentEnabled = !!snapbookData.partialPaymentEnabled;
+  let partialBlockDays = parseInt(snapbookData.partialBlockDays || 0, 10) || 0;
   let partialOptionLabel =
-    fpbData.partialOptionLabel || "Book a slot to 50% Pay";
+    snapbookData.partialOptionLabel || "Book a slot to 50% Pay";
   let usePartialPayment = partialPaymentEnabled;
   let paymentPreview = null;
   let previewRequestSeq = 0;
@@ -38,9 +39,9 @@
   function post(action, data) {
     const fd = new FormData();
     fd.append("action", action);
-    fd.append("nonce", fpbData.nonce);
+    fd.append("nonce", snapbookData.nonce);
     Object.entries(data).forEach(([k, v]) => fd.append(k, v));
-    return fetch(fpbData.ajaxUrl, { method: "POST", body: fd }).then((r) =>
+    return fetch(snapbookData.ajaxUrl, { method: "POST", body: fd }).then((r) =>
       r.json(),
     );
   }
@@ -49,12 +50,14 @@
      Shareable package deep-link (?package=slug-or-id)
   ------------------------------------------------- */
   function getUrlPackageParam() {
-    // A pre-selected package can come from the Elementor widget / Gutenberg
-    // block (data-package on the wrapper) or a ?package= share link. The
-    // explicit editor choice wins over the URL.
+    // A pre-selected package can come from the shortcode's package
+    // attribute (data-package on the wrapper) or a ?package= share link.
+    // The explicit shortcode choice wins over the URL.
     try {
       const wrap = document.querySelector(".fpb-wrap[data-package]");
-      const fromWrap = wrap ? (wrap.getAttribute("data-package") || "").trim() : "";
+      const fromWrap = wrap
+        ? (wrap.getAttribute("data-package") || "").trim()
+        : "";
       if (fromWrap) return fromWrap;
     } catch (_e) {
       /* fall through to URL */
@@ -77,9 +80,8 @@
 
     const wanted = param.toLowerCase();
     const found =
-      packages.find(
-        (p) => String(p.slug || "").toLowerCase() === wanted,
-      ) || packages.find((p) => String(p.id) === wanted);
+      packages.find((p) => String(p.slug || "").toLowerCase() === wanted) ||
+      packages.find((p) => String(p.id) === wanted);
     const sessionOk =
       found &&
       sessions.some(
@@ -98,9 +100,12 @@
      Init
   ------------------------------------------------- */
   function init() {
-    const requests = [post("fpb_get_data", {}), post("fpb_get_dates", {})];
-    if (fpbData.hasWC) {
-      requests.push(post("fpb_get_payment_gateways", {}));
+    const requests = [
+      post("snapbook_get_data", {}),
+      post("snapbook_get_dates", {}),
+    ];
+    if (snapbookData.hasWC) {
+      requests.push(post("snapbook_get_payment_gateways", {}));
     }
 
     Promise.all(requests)
@@ -172,8 +177,8 @@
     function activateBtn(btn) {
       wrap
         .querySelectorAll(".fpb-stype-btn")
-        .forEach((b) => b.classList.remove("act"));
-      btn.classList.add("act");
+        .forEach((b) => b.classList.remove("fpb-act"));
+      btn.classList.add("fpb-act");
       activeSessionId = parseInt(btn.dataset.id, 10);
       selectedPkgId = null;
       selectedPkg = null;
@@ -217,18 +222,18 @@
     grid.innerHTML = pkgs
       .map(
         (p) =>
-          '<div class="fpc' +
-          (p.featured == "1" ? " feat" : "") +
+          '<div class="fpb-pkg' +
+          (p.featured == "1" ? " fpb-feat" : "") +
           '" data-id="' +
           p.id +
           '" role="button" tabindex="0">' +
           (p.featured == "1"
-            ? '<span class="fpc-tag">&#9733; Popular</span>'
+            ? '<span class="fpb-pkg-tag">&#9733; Popular</span>'
             : "") +
-          '<div class="fpc-name">' +
+          '<div class="fpb-pkg-name">' +
           escHtml(p.name) +
           "</div>" +
-          '<div class="fpc-price">' +
+          '<div class="fpb-pkg-price">' +
           cur +
           parseFloat(p.price || 0).toLocaleString(undefined, {
             minimumFractionDigits: 0,
@@ -236,19 +241,21 @@
           }) +
           "</div>" +
           (p.duration
-            ? '<div class="fpc-dur">' + escHtml(p.duration) + "</div>"
+            ? '<div class="fpb-pkg-dur">' + escHtml(p.duration) + "</div>"
             : "") +
           // Description is rich text sanitized server-side (wp_kses_post)
           (p.description
-            ? '<div class="fpc-desc">' + p.description + "</div>"
+            ? '<div class="fpb-pkg-desc">' + p.description + "</div>"
             : "") +
           "</div>",
       )
       .join("");
-    grid.querySelectorAll(".fpc").forEach((card) => {
+    grid.querySelectorAll(".fpb-pkg").forEach((card) => {
       function selectCard() {
-        grid.querySelectorAll(".fpc").forEach((c) => c.classList.remove("sel"));
-        card.classList.add("sel");
+        grid
+          .querySelectorAll(".fpb-pkg")
+          .forEach((c) => c.classList.remove("fpb-sel"));
+        card.classList.add("fpb-sel");
         selectedPkgId = parseInt(card.dataset.id, 10);
         selectedPkg =
           pkgs.find((p) => parseInt(p.id, 10) === selectedPkgId) || null;
@@ -273,7 +280,7 @@
       parseInt(preselectPkg.session_id, 10) === activeSessionId
     ) {
       const card = grid.querySelector(
-        '.fpc[data-id="' + parseInt(preselectPkg.id, 10) + '"]',
+        '.fpb-pkg[data-id="' + parseInt(preselectPkg.id, 10) + '"]',
       );
       preselectPkg = null;
       if (card) card.click();
@@ -317,28 +324,30 @@
       .map((a) => {
         const pkgOnly = addonPackageIds(a).length > 0;
         return (
-          '<label class="fadd-card" for="fadd-' +
+          '<label class="fpb-addon-card" for="fpb-addon-' +
           a.id +
           '">' +
-          '<input class="ac" type="checkbox" value="' +
+          '<input class="fpb-ac" type="checkbox" value="' +
           a.id +
-          '" id="fadd-' +
+          '" id="fpb-addon-' +
           a.id +
           '">' +
-          '<span class="fadd-em">' +
+          '<span class="fpb-addon-em">' +
           (iconHtml(a.emoji) || "•") +
           "</span>" +
-          '<span class="fadd-info">' +
-          '<span class="fadd-name">' +
+          '<span class="fpb-addon-info">' +
+          '<span class="fpb-addon-name">' +
           escHtml(a.name) +
           "</span>" +
           // Description is rich text sanitized server-side (wp_kses_post)
           (a.description
-            ? '<span class="fadd-desc">' + a.description + "</span>"
+            ? '<span class="fpb-addon-desc">' + a.description + "</span>"
             : "") +
-          (pkgOnly ? '<span class="fadd-badge">This package only</span>' : "") +
+          (pkgOnly
+            ? '<span class="fpb-addon-badge">This package only</span>'
+            : "") +
           "</span>" +
-          '<span class="fadd-price">+' +
+          '<span class="fpb-addon-price">+' +
           cur +
           parseFloat(a.price || 0).toFixed(0) +
           "</span>" +
@@ -347,7 +356,7 @@
       })
       .join("");
 
-    grid.querySelectorAll(".ac").forEach((cb) => {
+    grid.querySelectorAll(".fpb-ac").forEach((cb) => {
       cb.addEventListener("change", updateStep2Price);
     });
 
@@ -356,10 +365,12 @@
 
   function collectAddons() {
     chosenAddons = [];
-    document.querySelectorAll("#fpb-addonsGrid .ac:checked").forEach((cb) => {
-      const a = addons.find((x) => String(x.id) === cb.value);
-      if (a) chosenAddons.push(a);
-    });
+    document
+      .querySelectorAll("#fpb-addonsGrid .fpb-ac:checked")
+      .forEach((cb) => {
+        const a = addons.find((x) => String(x.id) === cb.value);
+        if (a) chosenAddons.push(a);
+      });
   }
 
   /* -------------------------------------------------
@@ -375,10 +386,12 @@
     }
 
     const checked = [];
-    document.querySelectorAll("#fpb-addonsGrid .ac:checked").forEach((cb) => {
-      const a = addons.find((x) => String(x.id) === cb.value);
-      if (a) checked.push(a);
-    });
+    document
+      .querySelectorAll("#fpb-addonsGrid .fpb-ac:checked")
+      .forEach((cb) => {
+        const a = addons.find((x) => String(x.id) === cb.value);
+        if (a) checked.push(a);
+      });
     const addonsTotal = checked.reduce(
       (s, a) => s + parseFloat(a.price || 0),
       0,
@@ -487,10 +500,10 @@
   }
 
   function refreshPaymentPreview(total) {
-    if (!fpbData.hasWC) return;
+    if (!snapbookData.hasWC) return;
 
     const reqId = ++previewRequestSeq;
-    post("fpb_preview_payment", {
+    post("snapbook_preview_payment", {
       total_raw: total,
       session_date: chosenDate || "",
       use_deposit: usePartialPayment ? 1 : 0,
@@ -677,10 +690,10 @@
       const dt = new Date(yr, mo, d);
       const st = bookedDates[ds];
       const past = dt < today;
-      let cls = "fcell";
-      if (past) cls += " past";
-      else if (st) cls += " bkd";
-      else if (ds === chosenDate) cls += " sel";
+      let cls = "fpb-cell";
+      if (past) cls += " fpb-past";
+      else if (st) cls += " fpb-bkd";
+      else if (ds === chosenDate) cls += " fpb-sel";
       const interactive = !past && !st;
       html +=
         '<span class="' +
@@ -694,29 +707,31 @@
         "</span>";
     }
     grid.innerHTML = html;
-    grid.querySelectorAll(".fcell:not(.past):not(.bkd)").forEach((cell) => {
-      function chooseDate() {
-        grid
-          .querySelectorAll(".fcell")
-          .forEach((c) => c.classList.remove("sel"));
-        cell.classList.add("sel");
-        const d = cell.textContent.padStart(2, "0"),
-          m = String(mo + 1).padStart(2, "0");
-        chosenDate = yr + "-" + m + "-" + d;
-        setTxt("fpb-selDate", "Selected: " + formatDateHuman(chosenDate));
-        clearErr("fpb-s1err");
-        renderPartialPaymentOption();
-        updateStep1NextState();
-      }
-
-      cell.addEventListener("click", chooseDate);
-      cell.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          chooseDate();
+    grid
+      .querySelectorAll(".fpb-cell:not(.fpb-past):not(.fpb-bkd)")
+      .forEach((cell) => {
+        function chooseDate() {
+          grid
+            .querySelectorAll(".fpb-cell")
+            .forEach((c) => c.classList.remove("fpb-sel"));
+          cell.classList.add("fpb-sel");
+          const d = cell.textContent.padStart(2, "0"),
+            m = String(mo + 1).padStart(2, "0");
+          chosenDate = yr + "-" + m + "-" + d;
+          setTxt("fpb-selDate", "Selected: " + formatDateHuman(chosenDate));
+          clearErr("fpb-s1err");
+          renderPartialPaymentOption();
+          updateStep1NextState();
         }
+
+        cell.addEventListener("click", chooseDate);
+        cell.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            chooseDate();
+          }
+        });
       });
-    });
   }
 
   function updateStep1NextState() {
@@ -800,18 +815,18 @@
   function bkGo(step) {
     const target = parseInt(step, 10) || 1;
     document
-      .querySelectorAll(".fstep")
-      .forEach((el) => el.classList.remove("act"));
+      .querySelectorAll(".fpb-step")
+      .forEach((el) => el.classList.remove("fpb-act"));
     for (let i = 1; i <= 4; i++) {
       const sp = document.getElementById("fpb-sp" + i);
       if (!sp) continue;
-      sp.classList.remove("active", "done");
-      if (i === target) sp.classList.add("active");
-      else if (i < target) sp.classList.add("done");
+      sp.classList.remove("fpb-active", "fpb-done");
+      if (i === target) sp.classList.add("fpb-active");
+      else if (i < target) sp.classList.add("fpb-done");
     }
     const el = document.getElementById("fpb-s" + target);
     if (el) {
-      el.classList.add("act");
+      el.classList.add("fpb-act");
       el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
@@ -823,7 +838,7 @@
       if (!sp) continue;
       sp.addEventListener("click", () => {
         if (bookingLocked) return;
-        if (sp.classList.contains("done")) bkGo(i);
+        if (sp.classList.contains("fpb-done")) bkGo(i);
       });
     }
   }
@@ -877,9 +892,7 @@
   }
 
   function getSelectedGateway() {
-    const checked = document.querySelector(
-      'input[name="fpb-gateway"]:checked',
-    );
+    const checked = document.querySelector('input[name="fpb-gateway"]:checked');
     return checked ? checked.value : "";
   }
 
@@ -888,7 +901,7 @@
     const box = document.getElementById("fpb-gatewayBox");
     if (!wrap || !box) return;
 
-    if (!fpbData.hasWC) {
+    if (!snapbookData.hasWC) {
       box.style.display = "none";
       return;
     }
@@ -1028,7 +1041,7 @@
       if (msg) {
         msg.textContent =
           "No package selected. Please go back and choose a package.";
-        msg.className = "fpb-checkout-msg err";
+        msg.className = "fpb-checkout-msg fpb-err";
       }
       return;
     }
@@ -1037,14 +1050,14 @@
     if (!btn || !msg) return;
     if (!btn.dataset.orig) btn.dataset.orig = btn.textContent;
     btn.disabled = true;
-    btn.classList.add("is-loading");
+    btn.classList.add("fpb-is-loading");
     btn.textContent = "Please wait…";
     msg.textContent = "Preparing your booking…";
     msg.className = "fpb-checkout-msg";
 
     function restoreBtn() {
       btn.disabled = false;
-      btn.classList.remove("is-loading");
+      btn.classList.remove("fpb-is-loading");
       btn.textContent = btn.dataset.orig;
     }
 
@@ -1068,14 +1081,14 @@
           ? 1
           : 0;
 
-    if (fpbData.hasWC && checkoutMode === "direct") {
+    if (snapbookData.hasWC && checkoutMode === "direct") {
       const payload = buildOrderPayload(getSelectedGateway());
       if (embedOrder) {
         payload.previous_order_id = embedOrder.id;
         payload.previous_order_key = embedOrder.key;
       }
 
-      post("fpb_place_order", payload)
+      post("snapbook_place_order", payload)
         .then((r) => {
           if (r.success && r.data && r.data.embed_url) {
             // Gateway renders its secure fields on the order-pay page —
@@ -1098,18 +1111,18 @@
               r.data && r.data.message
                 ? r.data.message
                 : "Something went wrong. Please try again.";
-            msg.className = "fpb-checkout-msg err";
+            msg.className = "fpb-checkout-msg fpb-err";
           }
         })
         .catch(() => {
           restoreBtn();
           msg.textContent =
             "Network error. Check your connection and try again.";
-          msg.className = "fpb-checkout-msg err";
+          msg.className = "fpb-checkout-msg fpb-err";
         });
-    } else if (fpbData.hasWC) {
+    } else if (snapbookData.hasWC) {
       // Classic mode: add to cart, then WooCommerce checkout page.
-      post("fpb_add_to_cart", {
+      post("snapbook_add_to_cart", {
         session_type: session ? session.name : "",
         package_name: selectedPkg.name,
         package_id: selectedPkg.id,
@@ -1121,7 +1134,11 @@
         session_time: details.event_time || "",
         location_pref: details.hotel_place || "",
         notes: details.notes || "",
-        client_name: ((details.first_name || "") + " " + (details.last_name || "")).trim(),
+        client_name: (
+          (details.first_name || "") +
+          " " +
+          (details.last_name || "")
+        ).trim(),
         client_email: details.email || "",
         client_phone: details.phone || "",
         client_country: details.country || "",
@@ -1141,18 +1158,22 @@
               r.data && r.data.message
                 ? r.data.message
                 : "Something went wrong. Please try again.";
-            msg.className = "fpb-checkout-msg err";
+            msg.className = "fpb-checkout-msg fpb-err";
           }
         })
         .catch(() => {
           restoreBtn();
           msg.textContent =
             "Network error. Check your connection and try again.";
-          msg.className = "fpb-checkout-msg err";
+          msg.className = "fpb-checkout-msg fpb-err";
         });
     } else {
-      post("fpb_submit", {
-        name: ((details.first_name || "") + " " + (details.last_name || "")).trim(),
+      post("snapbook_submit", {
+        name: (
+          (details.first_name || "") +
+          " " +
+          (details.last_name || "")
+        ).trim(),
         email: details.email || "",
         phone: details.phone || "",
         pkg: selectedPkg.name,
@@ -1169,26 +1190,27 @@
             const suc = document.getElementById("fpb-sucWrap");
             if (suc) {
               suc.style.display = "block";
-              suc.classList.add("show");
+              suc.classList.add("fpb-show");
             }
             setTxt("fpb-sucEmail", details.email || "");
             const wa = document.getElementById("fpb-waLink");
-            if (wa && fpbData.whatsapp)
-              wa.href = "https://wa.me/" + fpbData.whatsapp.replace(/\D/g, "");
+            if (wa && snapbookData.whatsapp)
+              wa.href =
+                "https://wa.me/" + snapbookData.whatsapp.replace(/\D/g, "");
           } else {
             restoreBtn();
             msg.textContent =
               r.data && r.data.message
                 ? r.data.message
                 : "Error. Please try again.";
-            msg.className = "fpb-checkout-msg err";
+            msg.className = "fpb-checkout-msg fpb-err";
           }
         })
         .catch(() => {
           restoreBtn();
           msg.textContent =
             "Network error. Check your connection and try again.";
-          msg.className = "fpb-checkout-msg err";
+          msg.className = "fpb-checkout-msg fpb-err";
         });
     }
   }
@@ -1310,7 +1332,7 @@
     if (payWrap) payWrap.style.display = "none";
 
     const processed = !!d.payment_processed;
-    // fpbData.currency is entity-decoded by wp_localize_script; the AJAX
+    // snapbookData.currency is entity-decoded by wp_localize_script; the AJAX
     // value may still be a raw entity like &euro;, so prefer the local one.
     const currency = cur !== "e" ? cur : d.currency || cur;
 
@@ -1318,17 +1340,20 @@
     setTxt(
       "fpb-confirmTitle",
       processed
-        ? fpbData.confirmTitle || "Booking Confirmed!"
-        : fpbData.confirmPendingTitle || "Booking Received!",
+        ? snapbookData.confirmTitle || "Booking Confirmed!"
+        : snapbookData.confirmPendingTitle || "Booking Received!",
     );
     const noteTemplate = processed
-      ? fpbData.confirmMsg ||
+      ? snapbookData.confirmMsg ||
         "Thank you for your booking! A confirmation email has been sent to {email}."
-      : fpbData.confirmPendingMsg ||
+      : snapbookData.confirmPendingMsg ||
         "Thank you for your booking! Complete the payment below to confirm your slot.";
     setTxt(
       "fpb-confirmNote",
-      noteTemplate.replace(/\{email\}/g, d.client_email || "your email address"),
+      noteTemplate.replace(
+        /\{email\}/g,
+        d.client_email || "your email address",
+      ),
     );
     setTxt("fpb-confirmOrder", "#" + (d.order_number || d.order_id));
     setTxt("fpb-confirmMethod", d.gateway_title || "—");
@@ -1358,8 +1383,9 @@
     }
     const waBtn = document.getElementById("fpb-confirmWaBtn");
     if (waBtn) {
-      if (fpbData.whatsapp) {
-        waBtn.href = "https://wa.me/" + fpbData.whatsapp.replace(/\D/g, "");
+      if (snapbookData.whatsapp) {
+        waBtn.href =
+          "https://wa.me/" + snapbookData.whatsapp.replace(/\D/g, "");
         waBtn.style.display = "";
       } else {
         waBtn.style.display = "none";
@@ -1369,7 +1395,7 @@
     // .suc is display:none by CSS class; the inline block + .show class
     // (fade-in) are both needed to actually reveal the panel.
     wrap.style.display = "block";
-    wrap.classList.add("show");
+    wrap.classList.add("fpb-show");
     wrap.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -1404,7 +1430,7 @@
   }
 
   // Icon value may be an emoji or an icon-font class such as
-  // "fa-solid fa-camera" — mirrors sb_icon_html() on the server.
+  // "fa-solid fa-camera" — mirrors snapbook_icon_html() on the server.
   function iconHtml(v) {
     v = String(v || "").trim();
     if (!v) return "";
@@ -1417,7 +1443,7 @@
   /* -------------------------------------------------
      Public API
   ------------------------------------------------- */
-  window.fpb = { bkGo, s1Next, s2Next, s3Next, proceedToCheckout };
+  window.snapbook = { bkGo, s1Next, s2Next, s3Next, proceedToCheckout };
 
   /* -------------------------------------------------
      Boot

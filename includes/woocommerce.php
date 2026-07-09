@@ -4,20 +4,20 @@ defined('ABSPATH') || exit;
 /* ═══════════════════════════════════════════════════════════════
    Enqueue checkout styles
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_enqueue_scripts', 'fpb_enqueue_checkout_styles', 99);
-function fpb_enqueue_checkout_styles()
+add_action('wp_enqueue_scripts', 'snapbook_enqueue_checkout_styles', 99);
+function snapbook_enqueue_checkout_styles()
 {
     if (function_exists('is_checkout') && is_checkout()) {
         wp_enqueue_style(
-            'fpb-checkout-css',
-            SB_URL . 'assets/css/checkout.css',
+            'snapbook-checkout',
+            SNAPBOOK_URL . 'assets/css/checkout.css',
             [],
-            SB_VER
+            SNAPBOOK_VER
         );
     }
 }
 
-function fpb_get_booking_from_cart()
+function snapbook_get_booking_from_cart()
 {
     if (! function_exists('WC') || ! WC()->cart) return [];
     foreach (WC()->cart->get_cart() as $item) {
@@ -28,32 +28,32 @@ function fpb_get_booking_from_cart()
     return [];
 }
 
-function fpb_checkout_has_booking()
+function snapbook_checkout_has_booking()
 {
-    return ! empty(fpb_get_booking_from_cart());
+    return ! empty(snapbook_get_booking_from_cart());
 }
 
-function fpb_partial_payment_enabled()
+function snapbook_partial_payment_enabled()
 {
     return (int) get_option('fpb_enable_partial_payment', 1) === 1;
 }
 
-function fpb_account_required_for_booking()
+function snapbook_account_required_for_booking()
 {
     return (int) get_option('fpb_require_account_booking', 0) === 1;
 }
 
-add_filter('woocommerce_checkout_registration_required', 'fpb_force_checkout_registration_for_booking');
-function fpb_force_checkout_registration_for_booking($required)
+add_filter('woocommerce_checkout_registration_required', 'snapbook_force_checkout_registration_for_booking');
+function snapbook_force_checkout_registration_for_booking($required)
 {
-    if (fpb_checkout_has_booking() && fpb_account_required_for_booking()) {
+    if (snapbook_checkout_has_booking() && snapbook_account_required_for_booking()) {
         return true;
     }
 
     return $required;
 }
 
-function fpb_should_force_classic_checkout()
+function snapbook_should_force_classic_checkout()
 {
     if (is_admin() || ! function_exists('is_checkout') || ! is_checkout()) {
         return false;
@@ -63,16 +63,16 @@ function fpb_should_force_classic_checkout()
         return false;
     }
 
-    return fpb_checkout_has_booking();
+    return snapbook_checkout_has_booking();
 }
 
 /* ═══════════════════════════════════════════════════════════════
    Checkout block fallback — render classic checkout for FPB
 ═══════════════════════════════════════════════════════════════ */
-add_filter('the_content', 'fpb_force_classic_checkout_for_booking', 20);
-function fpb_force_classic_checkout_for_booking($content)
+add_filter('the_content', 'snapbook_force_classic_checkout_for_booking', 20);
+function snapbook_force_classic_checkout_for_booking($content)
 {
-    if (! fpb_should_force_classic_checkout()) {
+    if (! snapbook_should_force_classic_checkout()) {
         return $content;
     }
 
@@ -93,10 +93,10 @@ function fpb_force_classic_checkout_for_booking($content)
     return ! empty($classic_checkout) ? $classic_checkout : $content;
 }
 
-add_filter('render_block', 'fpb_replace_checkout_block_for_booking', 20, 2);
-function fpb_replace_checkout_block_for_booking($block_content, $block)
+add_filter('render_block', 'snapbook_replace_checkout_block_for_booking', 20, 2);
+function snapbook_replace_checkout_block_for_booking($block_content, $block)
 {
-    if (! fpb_should_force_classic_checkout()) {
+    if (! snapbook_should_force_classic_checkout()) {
         return $block_content;
     }
 
@@ -119,10 +119,10 @@ function fpb_replace_checkout_block_for_booking($block_content, $block)
 /* ═══════════════════════════════════════════════════════════════
    Checkout fields — add booking-specific billing details
 ═══════════════════════════════════════════════════════════════ */
-add_filter('woocommerce_checkout_fields', 'fpb_customize_checkout_fields', 20);
-function fpb_customize_checkout_fields($fields)
+add_filter('woocommerce_checkout_fields', 'snapbook_customize_checkout_fields', 20);
+function snapbook_customize_checkout_fields($fields)
 {
-    if (! fpb_checkout_has_booking()) return $fields;
+    if (! snapbook_checkout_has_booking()) return $fields;
 
     if (isset($fields['billing']['billing_first_name'])) {
         $fields['billing']['billing_first_name']['label'] = __('First name', 'snapbook');
@@ -241,8 +241,8 @@ function fpb_customize_checkout_fields($fields)
 
     // Apply the admin-configured checkout form (labels / required / enabled)
     // so the same field manager drives both the booking form and this page.
-    if (function_exists('sb_get_checkout_form_fields')) {
-        $cfg = sb_get_checkout_form_fields();
+    if (function_exists('snapbook_get_checkout_form_fields')) {
+        $cfg = snapbook_get_checkout_form_fields();
 
         $core_map = [
             'first_name' => 'billing_first_name',
@@ -285,9 +285,9 @@ function fpb_customize_checkout_fields($fields)
     }
 
     // Admin-created custom fields appear after the built-in ones.
-    if (function_exists('sb_get_custom_checkout_fields')) {
+    if (function_exists('snapbook_get_custom_checkout_fields')) {
         $priority = 150;
-        foreach (sb_get_custom_checkout_fields() as $key => $cf) {
+        foreach (snapbook_get_custom_checkout_fields() as $key => $cf) {
             $fields['billing']['billing_fpb_cf_' . $key] = [
                 'type'        => $cf['type'] === 'textarea' ? 'textarea' : $cf['type'],
                 'label'       => $cf['label'],
@@ -303,13 +303,13 @@ function fpb_customize_checkout_fields($fields)
     return $fields;
 }
 
-add_filter('woocommerce_checkout_get_value', 'fpb_prefill_checkout_values', 10, 2);
-function fpb_prefill_checkout_values($value, $input)
+add_filter('woocommerce_checkout_get_value', 'snapbook_prefill_checkout_values', 10, 2);
+function snapbook_prefill_checkout_values($value, $input)
 {
-    if (! fpb_checkout_has_booking()) return $value;
+    if (! snapbook_checkout_has_booking()) return $value;
     if (! empty($value)) return $value;
 
-    $booking = fpb_get_booking_from_cart();
+    $booking = snapbook_get_booking_from_cart();
     if (empty($booking)) return $value;
 
     if ($input === 'billing_event_date' && ! empty($booking['session_date'])) {
@@ -366,12 +366,12 @@ function fpb_prefill_checkout_values($value, $input)
     return $value;
 }
 
-add_action('woocommerce_after_checkout_validation', 'fpb_validate_checkout_fields', 10, 2);
-function fpb_validate_checkout_fields($data, $errors)
+add_action('woocommerce_after_checkout_validation', 'snapbook_validate_checkout_fields', 10, 2);
+function snapbook_validate_checkout_fields($data, $errors)
 {
-    if (! fpb_checkout_has_booking()) return;
+    if (! snapbook_checkout_has_booking()) return;
 
-    $cfg = function_exists('sb_get_checkout_form_fields') ? sb_get_checkout_form_fields() : [];
+    $cfg = function_exists('snapbook_get_checkout_form_fields') ? snapbook_get_checkout_form_fields() : [];
 
     $required = [
         'billing_event_date' => __('Date of the event is required.', 'snapbook'),
@@ -389,8 +389,8 @@ function fpb_validate_checkout_fields($data, $errors)
             $required[$billing_key] = sprintf(__('%s is required.', 'snapbook'), $cfg[$key]['label']);
         }
     }
-    if (function_exists('sb_get_custom_checkout_fields')) {
-        foreach (sb_get_custom_checkout_fields() as $key => $cf) {
+    if (function_exists('snapbook_get_custom_checkout_fields')) {
+        foreach (snapbook_get_custom_checkout_fields() as $key => $cf) {
             if (! empty($cf['required'])) {
                 /* translators: %s: field label */
                 $required['billing_fpb_cf_' . $key] = sprintf(__('%s is required.', 'snapbook'), $cf['label']);
@@ -415,10 +415,10 @@ function fpb_validate_checkout_fields($data, $errors)
     }
 }
 
-add_action('woocommerce_checkout_create_order', 'fpb_store_checkout_fields_on_order', 10, 2);
-function fpb_store_checkout_fields_on_order($order, $data)
+add_action('woocommerce_checkout_create_order', 'snapbook_store_checkout_fields_on_order', 10, 2);
+function snapbook_store_checkout_fields_on_order($order, $data)
 {
-    if (! fpb_checkout_has_booking()) return;
+    if (! snapbook_checkout_has_booking()) return;
 
     $map = [
         'billing_event_date'   => '_fpb_billing_event_date',
@@ -428,8 +428,8 @@ function fpb_store_checkout_fields_on_order($order, $data)
         'billing_room_number'  => '_fpb_billing_room_number',
         'billing_stay_period'  => '_fpb_billing_stay_period',
     ];
-    if (function_exists('sb_get_custom_checkout_fields')) {
-        foreach (sb_get_custom_checkout_fields() as $key => $cf) {
+    if (function_exists('snapbook_get_custom_checkout_fields')) {
+        foreach (snapbook_get_custom_checkout_fields() as $key => $cf) {
             $map['billing_fpb_cf_' . $key] = '_fpb_cf_' . $key;
         }
     }
@@ -449,8 +449,8 @@ function fpb_store_checkout_fields_on_order($order, $data)
 /* ═══════════════════════════════════════════════════════════════
    Set full booking price on cart item
 ═══════════════════════════════════════════════════════════════ */
-add_action('woocommerce_before_calculate_totals', 'fpb_set_cart_item_price', 20);
-function fpb_set_cart_item_price($cart)
+add_action('woocommerce_before_calculate_totals', 'snapbook_set_cart_item_price', 20);
+function snapbook_set_cart_item_price($cart)
 {
     if (is_admin() && ! defined('DOING_AJAX')) return;
     if (did_action('woocommerce_before_calculate_totals') >= 2) return;
@@ -466,8 +466,8 @@ function fpb_set_cart_item_price($cart)
 /* ═══════════════════════════════════════════════════════════════
    Rename cart item line
 ═══════════════════════════════════════════════════════════════ */
-add_filter('woocommerce_cart_item_name', 'fpb_cart_item_name', 10, 2);
-function fpb_cart_item_name($name, $cart_item)
+add_filter('woocommerce_cart_item_name', 'snapbook_cart_item_name', 10, 2);
+function snapbook_cart_item_name($name, $cart_item)
 {
     if (isset($cart_item['fpb_booking']['package_name'])) {
         return esc_html__('Photography Session', 'snapbook')
@@ -479,12 +479,12 @@ function fpb_cart_item_name($name, $cart_item)
 /* ═══════════════════════════════════════════════════════════════
    Show booking summary in cart / checkout
 ═══════════════════════════════════════════════════════════════ */
-add_filter('woocommerce_get_item_data', 'fpb_get_item_data', 10, 2);
-function fpb_get_item_data($data, $cart_item)
+add_filter('woocommerce_get_item_data', 'snapbook_get_item_data', 10, 2);
+function snapbook_get_item_data($data, $cart_item)
 {
     if (! isset($cart_item['fpb_booking'])) return $data;
     $b = $cart_item['fpb_booking'];
-    $cur = $b['currency'] ?? sb_get_currency_symbol();
+    $cur = $b['currency'] ?? snapbook_get_currency_symbol();
 
     if (! empty($b['session_type']))  $data[] = ['name' => __('Session',      'snapbook'), 'value' => esc_html($b['session_type'])];
     if (! empty($b['session_date']))  $data[] = ['name' => __('Date',         'snapbook'), 'value' => esc_html($b['session_date'])];
@@ -504,12 +504,12 @@ function fpb_get_item_data($data, $cart_item)
 /* ═══════════════════════════════════════════════════════════════
    Save booking meta to order item
 ═══════════════════════════════════════════════════════════════ */
-add_action('woocommerce_checkout_create_order_line_item', 'fpb_save_order_item_meta', 10, 4);
-function fpb_save_order_item_meta($item, $cart_item_key, $values, $order)
+add_action('woocommerce_checkout_create_order_line_item', 'snapbook_save_order_item_meta', 10, 4);
+function snapbook_save_order_item_meta($item, $cart_item_key, $values, $order)
 {
     if (! isset($values['fpb_booking'])) return;
     $b = $values['fpb_booking'];
-    $cur = $b['currency'] ?? sb_get_currency_symbol();
+    $cur = $b['currency'] ?? snapbook_get_currency_symbol();
 
     $billing_name = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
     $client_name = ! empty($b['client_name']) ? $b['client_name'] : $billing_name;
@@ -525,7 +525,7 @@ function fpb_save_order_item_meta($item, $cart_item_key, $values, $order)
         '_fpb_package_name'  => $b['package_name']  ?? '',
         '_fpb_total'         => $b['total']         ?? '',
         '_fpb_deposit'       => $b['deposit']       ?? '',
-        '_fpb_deposit_pct'   => $b['deposit_pct']   ?? (fpb_partial_payment_enabled() ? 50 : 100),
+        '_fpb_deposit_pct'   => $b['deposit_pct']   ?? (snapbook_partial_payment_enabled() ? 50 : 100),
         '_fpb_balance_due'   => max(0, (float) ($b['total'] ?? 0) - (float) ($b['deposit'] ?? 0)),
         '_fpb_addons_label'  => $b['addons_label']  ?? '',
         '_fpb_addons_total'  => $b['addons_total']  ?? '',
@@ -554,16 +554,16 @@ function fpb_save_order_item_meta($item, $cart_item_key, $values, $order)
 /* ═══════════════════════════════════════════════════════════════
    On payment complete — save booking to DB and block date
 ═══════════════════════════════════════════════════════════════ */
-add_action('woocommerce_payment_complete', 'fpb_on_paid_order', 10, 1);
-add_action('woocommerce_order_status_processing', 'fpb_on_paid_order', 10, 1);
-add_action('woocommerce_order_status_completed', 'fpb_on_paid_order', 10, 1);
-function fpb_on_paid_order($order_id)
+add_action('woocommerce_payment_complete', 'snapbook_on_paid_order', 10, 1);
+add_action('woocommerce_order_status_processing', 'snapbook_on_paid_order', 10, 1);
+add_action('woocommerce_order_status_completed', 'snapbook_on_paid_order', 10, 1);
+function snapbook_on_paid_order($order_id)
 {
     $order = wc_get_order($order_id);
     if (! $order) return;
     if ((int) $order->get_meta('_fpb_is_balance_order', true) === 1) return;
 
-    fpb_cleanup_checkout_draft_orders($order);
+    snapbook_cleanup_checkout_draft_orders($order);
 
     $fpb_product = (int) get_option('fpb_wc_product_id', 0);
     foreach ($order->get_items() as $item) {
@@ -583,7 +583,7 @@ function fpb_on_paid_order($order_id)
 
         $deposit_pct = (int) $item->get_meta('_fpb_deposit_pct');
         if ($deposit_pct < 1) {
-            $deposit_pct = fpb_partial_payment_enabled() ? 50 : 100;
+            $deposit_pct = snapbook_partial_payment_enabled() ? 50 : 100;
         }
         $deposit     = (float) $item->get_meta('_fpb_deposit');
         $total       = (float) $item->get_meta('_fpb_total');
@@ -628,17 +628,17 @@ function fpb_on_paid_order($order_id)
         }
 
         if ($balance_due > 0.01) {
-            $due_order_id = fpb_create_balance_order($order, $item, $balance_due);
+            $due_order_id = snapbook_create_balance_order($order, $item, $balance_due);
             if ($due_order_id > 0) {
-                fpb_schedule_balance_reminder($order_id);
+                snapbook_schedule_balance_reminder($order_id);
             }
         }
     }
 }
 
-add_action('woocommerce_order_status_processing', 'fpb_on_balance_order_paid', 20, 1);
-add_action('woocommerce_order_status_completed', 'fpb_on_balance_order_paid', 20, 1);
-function fpb_on_balance_order_paid($order_id)
+add_action('woocommerce_order_status_processing', 'snapbook_on_balance_order_paid', 20, 1);
+add_action('woocommerce_order_status_completed', 'snapbook_on_balance_order_paid', 20, 1);
+function snapbook_on_balance_order_paid($order_id)
 {
     $order = wc_get_order($order_id);
     if (! $order) {
@@ -671,7 +671,7 @@ function fpb_on_balance_order_paid($order_id)
     );
 }
 
-function fpb_cleanup_checkout_draft_orders($paid_order)
+function snapbook_cleanup_checkout_draft_orders($paid_order)
 {
     if (! $paid_order || ! function_exists('wc_get_orders')) {
         return;
@@ -738,7 +738,7 @@ function fpb_cleanup_checkout_draft_orders($paid_order)
     }
 }
 
-function fpb_create_balance_order($parent_order, $parent_item, $balance_due)
+function snapbook_create_balance_order($parent_order, $parent_item, $balance_due)
 {
     if (! $parent_order || $balance_due <= 0) {
         return 0;
@@ -794,17 +794,17 @@ function fpb_create_balance_order($parent_order, $parent_item, $balance_due)
     return (int) $due_order->get_id();
 }
 
-add_action('fpb_send_balance_reminder_event', 'fpb_send_scheduled_balance_reminder', 10, 1);
-function fpb_send_scheduled_balance_reminder($order_id)
+add_action('fpb_send_balance_reminder_event', 'snapbook_send_scheduled_balance_reminder', 10, 1);
+function snapbook_send_scheduled_balance_reminder($order_id)
 {
     if ((int) get_option('fpb_enable_balance_reminders', 0) !== 1) {
         return;
     }
 
-    fpb_send_balance_reminder_email((int) $order_id, false);
+    snapbook_send_balance_reminder_email((int) $order_id, false);
 }
 
-function fpb_schedule_balance_reminder($order_id)
+function snapbook_schedule_balance_reminder($order_id)
 {
     if ((int) get_option('fpb_enable_balance_reminders', 0) !== 1) {
         return;
@@ -824,7 +824,7 @@ function fpb_schedule_balance_reminder($order_id)
     wp_schedule_single_event(time() + ($hours * HOUR_IN_SECONDS), 'fpb_send_balance_reminder_event', [$order_id]);
 }
 
-function fpb_send_balance_reminder_email($parent_order_id, $manual = false)
+function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
 {
     $parent_order = wc_get_order((int) $parent_order_id);
     if (! $parent_order) {
@@ -859,7 +859,7 @@ function fpb_send_balance_reminder_email($parent_order_id, $manual = false)
     $template = get_option('fpb_balance_reminder_template', "Hi {customer_name},\n\nThis is a reminder that {balance_amount} is pending for your booking on {session_date}.\n\nPay now: {pay_link}\n\nThank you.");
 
     $currency = $parent_order->get_currency();
-    $symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol($currency) : sb_get_currency_symbol();
+    $symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol($currency) : snapbook_get_currency_symbol();
     $balance_amount = $symbol . number_format((float) $due_order->get_total(), 2);
     $package_name = (string) $due_order->get_meta('_fpb_package_name', true);
     $session_date = (string) $due_order->get_meta('_fpb_session_date', true);
@@ -892,7 +892,7 @@ function fpb_send_balance_reminder_email($parent_order_id, $manual = false)
  * Whether an order is a SnapBook booking order (created by the plugin or
  * carrying the hidden booking product).
  */
-function sb_is_booking_order($order)
+function snapbook_is_booking_order($order)
 {
     if (! $order) {
         return false;
@@ -920,7 +920,7 @@ function sb_is_booking_order($order)
  *
  * @return WC_Order|null
  */
-function sb_get_balance_order_for($parent_order, $create = false)
+function snapbook_get_balance_order_for($parent_order, $create = false)
 {
     if (! $parent_order || ! function_exists('wc_get_order')) {
         return null;
@@ -953,7 +953,7 @@ function sb_get_balance_order_for($parent_order, $create = false)
             $balance = max(0, round($total - $deposit, 2));
         }
         if ($balance > 0.01) {
-            $due_order_id = fpb_create_balance_order($parent_order, $item, $balance);
+            $due_order_id = snapbook_create_balance_order($parent_order, $item, $balance);
             if ($due_order_id > 0) {
                 return wc_get_order($due_order_id);
             }
@@ -968,8 +968,8 @@ function sb_get_balance_order_for($parent_order, $create = false)
    Include the remaining-balance payment link in the customer's
    first booking email (order confirmation), not just later reminders.
 ═══════════════════════════════════════════════════════════════ */
-add_action('woocommerce_email_after_order_table', 'sb_email_append_balance_link', 15, 4);
-function sb_email_append_balance_link($order, $sent_to_admin = false, $plain_text = false, $email = null)
+add_action('woocommerce_email_after_order_table', 'snapbook_email_append_balance_link', 15, 4);
+function snapbook_email_append_balance_link($order, $sent_to_admin = false, $plain_text = false, $email = null)
 {
     if (! $order || ! is_a($order, 'WC_Order')) {
         return;
@@ -982,11 +982,11 @@ function sb_email_append_balance_link($order, $sent_to_admin = false, $plain_tex
     if ((int) $order->get_meta('_fpb_is_balance_order', true) === 1) {
         return;
     }
-    if (! sb_is_booking_order($order) || ! $order->is_paid()) {
+    if (! snapbook_is_booking_order($order) || ! $order->is_paid()) {
         return;
     }
 
-    $balance_order = sb_get_balance_order_for($order, true);
+    $balance_order = snapbook_get_balance_order_for($order, true);
     if (! $balance_order) {
         return;
     }
@@ -996,7 +996,7 @@ function sb_email_append_balance_link($order, $sent_to_admin = false, $plain_tex
 
     $pay_url = $balance_order->get_checkout_payment_url();
     $currency = $order->get_currency();
-    $symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol($currency) : sb_get_currency_symbol();
+    $symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol($currency) : snapbook_get_currency_symbol();
     $balance_amount = $symbol . number_format((float) $balance_order->get_total(), 2);
 
     $session_date = (string) $balance_order->get_meta('_fpb_session_date', true);
@@ -1015,22 +1015,20 @@ function sb_email_append_balance_link($order, $sent_to_admin = false, $plain_tex
         return;
     }
 
-    $title = esc_html__('Pay your remaining balance', 'snapbook');
     if ($session_date !== '') {
         /* translators: 1: balance amount, 2: session date */
-        $intro = esc_html(sprintf(__('A balance of %1$s is still due for your session on %2$s. You can settle it any time using the button below.', 'snapbook'), $balance_amount, $session_date));
+        $intro = sprintf(__('A balance of %1$s is still due for your session on %2$s. You can settle it any time using the button below.', 'snapbook'), $balance_amount, $session_date);
     } else {
         /* translators: %s: balance amount */
-        $intro = esc_html(sprintf(__('A balance of %s is still due for your booking. You can settle it any time using the button below.', 'snapbook'), $balance_amount));
+        $intro = sprintf(__('A balance of %s is still due for your booking. You can settle it any time using the button below.', 'snapbook'), $balance_amount);
     }
-    $btn = esc_html__('Pay Remaining Balance', 'snapbook');
 
     // Self-contained inline styles — email clients don't load the plugin CSS.
     echo '<div style="margin:24px 0;padding:20px 24px;border:2px solid #3d6b78;border-radius:8px;background:#eef4f6;">';
-    echo '<h2 style="margin:0 0 8px;font-size:18px;line-height:1.3;color:#2e5562;">' . $title . '</h2>';
-    echo '<p style="margin:0 0 4px;font-size:14px;line-height:1.5;color:#1d2327;">' . $intro . '</p>';
+    echo '<h2 style="margin:0 0 8px;font-size:18px;line-height:1.3;color:#2e5562;">' . esc_html__('Pay your remaining balance', 'snapbook') . '</h2>';
+    echo '<p style="margin:0 0 4px;font-size:14px;line-height:1.5;color:#1d2327;">' . esc_html($intro) . '</p>';
     echo '<p style="margin:8px 0 16px;font-size:24px;font-weight:700;color:#2e5562;">' . esc_html($balance_amount) . '</p>';
-    echo '<a href="' . esc_url($pay_url) . '" style="display:inline-block;padding:12px 24px;background:#3d6b78;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">' . $btn . '</a>';
+    echo '<a href="' . esc_url($pay_url) . '" style="display:inline-block;padding:12px 24px;background:#3d6b78;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">' . esc_html__('Pay Remaining Balance', 'snapbook') . '</a>';
     echo '<p style="margin:16px 0 0;font-size:12px;line-height:1.5;color:#50575e;word-break:break-all;">' . esc_html__('Or copy and paste this link into your browser:', 'snapbook') . '<br><a href="' . esc_url($pay_url) . '" style="color:#3d6b78;">' . esc_html($pay_url) . '</a></p>';
     echo '</div>';
 }
@@ -1047,9 +1045,9 @@ function sb_email_append_balance_link($order, $sent_to_admin = false, $plain_tex
  * card processors, redirect gateways — must finish on the WooCommerce
  * payment page where the gateway renders its own fields/buttons.
  */
-function sb_gateway_processes_offline($gateway)
+function snapbook_gateway_processes_offline($gateway)
 {
-    $offline = apply_filters('sb_offline_payment_gateways', ['bacs', 'cheque', 'cod']);
+    $offline = apply_filters('snapbook_offline_payment_gateways', ['bacs', 'cheque', 'cod']);
     return empty($gateway->has_fields) && in_array($gateway->id, $offline, true);
 }
 
@@ -1060,14 +1058,14 @@ function sb_gateway_processes_offline($gateway)
  * gateways get a full-page redirect instead, since external processors
  * usually refuse to load inside frames.
  */
-function sb_gateway_embeds_payment($gateway)
+function snapbook_gateway_embeds_payment($gateway)
 {
-    if (sb_gateway_processes_offline($gateway)) {
+    if (snapbook_gateway_processes_offline($gateway)) {
         return false;
     }
 
     $embeddable = ! empty($gateway->has_fields) || strpos((string) $gateway->id, 'ppcp') === 0;
-    return (bool) apply_filters('sb_embed_payment_gateway', $embeddable, $gateway);
+    return (bool) apply_filters('snapbook_embed_payment_gateway', $embeddable, $gateway);
 }
 
 /**
@@ -1076,7 +1074,7 @@ function sb_gateway_embeds_payment($gateway)
  * the authorization token, so only the customer who created the order
  * (and holds its secret key) can cancel it.
  */
-function sb_cancel_superseded_booking_order($order_id, $order_key)
+function snapbook_cancel_superseded_booking_order($order_id, $order_key)
 {
     $order_id  = absint($order_id);
     $order_key = (string) $order_key;
@@ -1111,11 +1109,11 @@ function sb_cancel_superseded_booking_order($order_id, $order_key)
    merchant disabled the checkout button location in PayPal settings
    (the pay-order page reuses the "checkout" location internally).
 ═══════════════════════════════════════════════════════════════ */
-add_filter('woocommerce_paypal_payments_selected_button_locations', 'sb_force_ppcp_buttons_in_embed');
-function sb_force_ppcp_buttons_in_embed($locations)
+add_filter('woocommerce_paypal_payments_selected_button_locations', 'snapbook_force_ppcp_buttons_in_embed');
+function snapbook_force_ppcp_buttons_in_embed($locations)
 {
     if (
-        isset($_GET['sb_embed']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only tweak on the embedded pay page.
+        isset($_GET['snapbook_embed']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only tweak on the embedded pay page.
         && function_exists('is_wc_endpoint_url')
         && is_wc_endpoint_url('order-pay')
     ) {
@@ -1128,15 +1126,15 @@ function sb_force_ppcp_buttons_in_embed($locations)
 /* ═══════════════════════════════════════════════════════════════
    Chrome-less order-pay page for the booking form's payment iframe
 ═══════════════════════════════════════════════════════════════ */
-add_filter('template_include', 'sb_embedded_pay_template', 99);
-function sb_embedded_pay_template($template)
+add_filter('template_include', 'snapbook_embedded_pay_template', 99);
+function snapbook_embedded_pay_template($template)
 {
     if (
-        isset($_GET['sb_embed']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only template switch; WooCommerce validates the order key.
+        isset($_GET['snapbook_embed']) // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only template switch; WooCommerce validates the order key.
         && function_exists('is_wc_endpoint_url')
         && is_wc_endpoint_url('order-pay')
     ) {
-        $embed = SB_DIR . 'templates/embed-pay.php';
+        $embed = SNAPBOOK_DIR . 'templates/embed-pay.php';
         if (file_exists($embed)) {
             return $embed;
         }
@@ -1145,13 +1143,11 @@ function sb_embedded_pay_template($template)
     return $template;
 }
 
-add_action('wp_ajax_fpb_place_order',        'sb_ajax_place_booking_order');
-add_action('wp_ajax_nopriv_fpb_place_order', 'sb_ajax_place_booking_order');
-add_action('wp_ajax_sb_place_order',         'sb_ajax_place_booking_order');
-add_action('wp_ajax_nopriv_sb_place_order',  'sb_ajax_place_booking_order');
-function sb_ajax_place_booking_order()
+add_action('wp_ajax_snapbook_place_order',        'snapbook_ajax_place_booking_order');
+add_action('wp_ajax_nopriv_snapbook_place_order', 'snapbook_ajax_place_booking_order');
+function snapbook_ajax_place_booking_order()
 {
-    check_ajax_referer('fpb_nonce', 'nonce');
+    check_ajax_referer('snapbook_nonce', 'nonce');
 
     if (! class_exists('WooCommerce')) {
         wp_send_json_error(['message' => __('WooCommerce is required for online checkout.', 'snapbook')]);
@@ -1163,17 +1159,17 @@ function sb_ajax_place_booking_order()
 
     $product_id = (int) get_option('fpb_wc_product_id', 0);
     if (! $product_id || get_post_status($product_id) === false) {
-        fpb_create_wc_product();
+        snapbook_create_wc_product();
         $product_id = (int) get_option('fpb_wc_product_id', 0);
     }
     if (! $product_id) {
         wp_send_json_error(['message' => __('Booking product not configured. Please contact support.', 'snapbook')]);
     }
 
-    $details = sb_sanitize_checkout_details(isset($_POST['details']) && is_array($_POST['details']) ? $_POST['details'] : []); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+    $details = snapbook_sanitize_checkout_details(isset($_POST['details']) && is_array($_POST['details']) ? $_POST['details'] : []); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
 
     // Validate required fields against the admin-configured checkout form.
-    $cf_fields = sb_get_checkout_form_fields();
+    $cf_fields = snapbook_get_checkout_form_fields();
     foreach ($cf_fields as $key => $f) {
         if (empty($f['enabled']) || empty($f['required'])) {
             continue;
@@ -1183,7 +1179,7 @@ function sb_ajax_place_booking_order()
             wp_send_json_error(['message' => sprintf(__('%s is required.', 'snapbook'), $f['label'])]);
         }
     }
-    foreach (sb_get_custom_checkout_fields() as $ckey => $cf) {
+    foreach (snapbook_get_custom_checkout_fields() as $ckey => $cf) {
         if (empty($cf['required'])) {
             continue;
         }
@@ -1203,7 +1199,7 @@ function sb_ajax_place_booking_order()
     $session_date = sanitize_text_field(wp_unslash($_POST['session_date'] ?? ''));
     $partial_enabled       = ((int) get_option('fpb_enable_partial_payment', 1) === 1);
     $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
-    $can_use_deposit = $partial_enabled && $use_deposit_requested && fpb_can_use_partial_payment_for_date($session_date);
+    $can_use_deposit = $partial_enabled && $use_deposit_requested && snapbook_can_use_partial_payment_for_date($session_date);
     $pay_pct  = $can_use_deposit ? 50 : 100;
     $deposit  = round(($total * $pay_pct) / 100, 2);
 
@@ -1218,7 +1214,7 @@ function sb_ajax_place_booking_order()
         'deposit'       => $deposit,
         'deposit_pct'   => $pay_pct,
         'session_date'  => $session_date,
-        'currency'      => sb_get_currency_symbol(),
+        'currency'      => snapbook_get_currency_symbol(),
     ];
 
     if (empty($booking['package_name'])) {
@@ -1235,10 +1231,10 @@ function sb_ajax_place_booking_order()
     $previous_order_id  = absint(wp_unslash($_POST['previous_order_id'] ?? 0));
     $previous_order_key = sanitize_text_field(wp_unslash($_POST['previous_order_key'] ?? ''));
     if ($previous_order_id > 0 && $previous_order_key !== '') {
-        sb_cancel_superseded_booking_order($previous_order_id, $previous_order_key);
+        snapbook_cancel_superseded_booking_order($previous_order_id, $previous_order_key);
     }
 
-    $order = sb_create_booking_order($booking, $details, $payment_method);
+    $order = snapbook_create_booking_order($booking, $details, $payment_method);
     if (! $order) {
         wp_send_json_error(['message' => __('Could not create your booking order. Please try again.', 'snapbook')]);
     }
@@ -1258,7 +1254,7 @@ function sb_ajax_place_booking_order()
             $gateway       = $available[$payment_method];
             $gateway_title = wp_strip_all_tags((string) $gateway->get_title());
 
-            if (sb_gateway_processes_offline($gateway)) {
+            if (snapbook_gateway_processes_offline($gateway)) {
                 try {
                     $result = $gateway->process_payment($order->get_id());
                     if (is_array($result) && ($result['result'] ?? '') === 'success') {
@@ -1284,8 +1280,8 @@ function sb_ajax_place_booking_order()
                 // The order-pay page renders the gateway's own secure
                 // fields/buttons exactly like the checkout page does.
                 $redirect_url = $order->get_checkout_payment_url();
-                if (sb_gateway_embeds_payment($gateway)) {
-                    $embed_url = add_query_arg('sb_embed', '1', $redirect_url);
+                if (snapbook_gateway_embeds_payment($gateway)) {
+                    $embed_url = add_query_arg('snapbook_embed', '1', $redirect_url);
                 }
             }
         }
@@ -1293,7 +1289,7 @@ function sb_ajax_place_booking_order()
         // No method chosen up front — the embedded pay page presents the
         // gateway list natively (icons, expanding card fields, Pay button),
         // exactly like the WooCommerce checkout payment section.
-        $embed_url = add_query_arg('sb_embed', '1', $order->get_checkout_payment_url());
+        $embed_url = add_query_arg('snapbook_embed', '1', $order->get_checkout_payment_url());
     }
 
     wp_send_json_success([
@@ -1303,7 +1299,7 @@ function sb_ajax_place_booking_order()
         'status'            => (string) $order->get_status(),
         'status_label'      => function_exists('wc_get_order_status_name') ? wc_get_order_status_name($order->get_status()) : $order->get_status(),
         'due_now'           => (float) $order->get_total(),
-        'currency'          => sb_get_currency_symbol(),
+        'currency'          => snapbook_get_currency_symbol(),
         'gateway_title'     => $gateway_title,
         'payment_processed' => $processed,
         'client_email'      => (string) $order->get_billing_email(),
@@ -1321,7 +1317,7 @@ function sb_ajax_place_booking_order()
  *
  * @return WC_Order|false
  */
-function sb_create_booking_order($booking, $details, $payment_method = '')
+function snapbook_create_booking_order($booking, $details, $payment_method = '')
 {
     $product = wc_get_product((int) $booking['product_id']);
     if (! $product) {
@@ -1436,8 +1432,8 @@ function sb_create_booking_order($booking, $details, $payment_method = '')
    for booking orders — same label/number settings as the booking
    form's success screens.
 ═══════════════════════════════════════════════════════════════ */
-add_action('woocommerce_thankyou', 'sb_thankyou_whatsapp_button', 20);
-function sb_thankyou_whatsapp_button($order_id)
+add_action('woocommerce_thankyou', 'snapbook_thankyou_whatsapp_button', 20);
+function snapbook_thankyou_whatsapp_button($order_id)
 {
     $number = preg_replace('/\D/', '', (string) get_option('fpb_whatsapp', ''));
     if ($number === '') {
@@ -1474,8 +1470,8 @@ function sb_thankyou_whatsapp_button($order_id)
 /* ═══════════════════════════════════════════════════════════════
    Hide FPB product from shop / search
 ═══════════════════════════════════════════════════════════════ */
-add_action('pre_get_posts', 'fpb_hide_product_from_catalog');
-function fpb_hide_product_from_catalog($q)
+add_action('pre_get_posts', 'snapbook_hide_product_from_catalog');
+function snapbook_hide_product_from_catalog($q)
 {
     if (is_admin() || ! $q->is_main_query()) return;
     $fpb_id = (int) get_option('fpb_wc_product_id', 0);

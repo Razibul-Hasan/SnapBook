@@ -4,7 +4,7 @@ Tags: booking, photography, woocommerce, appointment, calendar
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.4.7
+Stable tag: 2.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -17,8 +17,6 @@ SnapBook is a complete booking solution for photography studios. It provides a m
 **Features:**
 
 * Multi-step booking form via shortcode `[snapbook]`
-* Gutenberg-friendly block pattern that inserts the native Shortcode block
-* Elementor widget for inserting the booking form
 * Session types, packages, and add-ons management
 * Date slot calendar (available / booked / blocked)
 * WooCommerce integration for deposit payments
@@ -57,6 +55,12 @@ Yes. Go to **SnapBook → Date Slots** and click on any future date to toggle it
 6. Settings page.
 
 == Changelog ==
+
+= 2.5.0 =
+* Cleanup release prepared for WordPress.org: removed the Elementor widget and the Gutenberg block — use the `[snapbook]` shortcode (it accepts optional `package`, `primary`, and `accent` attributes).
+* No more external requests: the Font Awesome CDN stylesheet is no longer loaded. Icons now use emoji or bundled Dashicons classes out of the box.
+* Performance: the booking script loads deferred, and all assets load only on pages that contain the booking form.
+* All PHP functions, AJAX endpoints, and CSS classes are now consistently prefixed; removed legacy duplicate code paths.
 
 = 2.4.7 =
 * Booking form: the Details step (Step 3) is now organised into labelled sections — Contact, Event details, Address, and Additional details.

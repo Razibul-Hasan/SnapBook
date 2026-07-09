@@ -6,7 +6,7 @@
 ![WooCommerce](https://img.shields.io/badge/WooCommerce-7.0%2B-96588a?logo=woocommerce)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777bb4?logo=php)
 ![License](https://img.shields.io/badge/License-GPL--2.0%2B-green)
-![Version](https://img.shields.io/badge/Version-2.4.7-orange)
+![Version](https://img.shields.io/badge/Version-2.5.0-orange)
 
 ---
 
@@ -20,7 +20,6 @@
 - **Shareable package links** — every package gets a stable slug and a "Copy Link" button; opening the booking page with `?package=` pre-selects it.
 - **Appearance settings** — pick primary and accent brand colors for the booking form.
 - **Checkout field builder** — toggle built-in checkout fields and add or remove custom ones.
-- **Gutenberg & Elementor** — a block pattern and an Elementor widget for inserting the form.
 - **WhatsApp fallback** — sends a booking enquiry when WooCommerce is not active.
 - **Email notifications** — automatic emails to both admin and client on new bookings.
 - **Security hardened** — nonce verification, output escaping, and input sanitisation throughout.
@@ -64,8 +63,9 @@
 [snapbook]
 ```
 
-Place this shortcode on any page to display the multi-step booking form. A Gutenberg
-block pattern and an Elementor widget are also available for inserting it visually.
+Place this shortcode on any page to display the multi-step booking form. Optional
+attributes: `[snapbook package="slug-or-id" primary="#hex" accent="#hex"]` to
+pre-select a package and override the two brand colors for that instance.
 
 ### Admin Menus
 
@@ -84,7 +84,7 @@ block pattern and an Elementor widget are also available for inserting it visual
 
 ```
 snapbook/
-├── snapbook.php                    # Plugin bootstrap, hooks & compat wrappers
+├── snapbook.php                    # Plugin bootstrap & shared helpers
 ├── readme.txt                      # WordPress.org readme
 ├── README.md                       # This file
 ├── assets/
@@ -100,8 +100,6 @@ snapbook/
 │   ├── admin.php                   # Admin menus, pages, and CRUD
 │   ├── ajax.php                    # AJAX handlers
 │   ├── shortcode.php               # [snapbook] shortcode & asset registration
-│   ├── gutenberg.php               # Gutenberg block pattern
-│   ├── elementor.php               # Elementor widget
 │   └── woocommerce.php             # WooCommerce checkout & deposit integration
 └── templates/
     └── embed-pay.php               # Embedded order-pay page (iframe)
@@ -110,6 +108,12 @@ snapbook/
 ---
 
 ## Changelog
+
+### 2.5.0
+- Removed the Elementor widget and Gutenberg block; the `[snapbook]` shortcode (with optional `package` / `primary` / `accent` attributes) is the single way to embed the form.
+- Removed the Font Awesome CDN dependency — no external requests; emoji and Dashicons work out of the box.
+- Performance: deferred booking script, conditional asset loading on booking pages only.
+- Consistent `snapbook_` PHP prefix and `fpb-` CSS prefix throughout; removed legacy duplicate code.
 
 ### 2.4.7
 - Booking form: the Details step (Step 3) is now organised into labelled sections — Contact, Event details, Address, and Additional details.
