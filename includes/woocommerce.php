@@ -524,6 +524,8 @@ function snapbook_save_order_item_meta($item, $cart_item_key, $values, $order)
         '_fpb_session_type'  => $b['session_type']  ?? '',
         '_fpb_package_name'  => $b['package_name']  ?? '',
         '_fpb_total'         => $b['total']         ?? '',
+        '_fpb_fee_pct'       => $b['fee_pct']       ?? 0,
+        '_fpb_fee_amount'    => $b['fee_amount']    ?? 0,
         '_fpb_deposit'       => $b['deposit']       ?? '',
         '_fpb_deposit_pct'   => $b['deposit_pct']   ?? (snapbook_partial_payment_enabled() ? 50 : 100),
         '_fpb_balance_due'   => max(0, (float) ($b['total'] ?? 0) - (float) ($b['deposit'] ?? 0)),
@@ -1296,7 +1298,12 @@ function snapbook_ajax_place_booking_order()
     $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
     $can_use_deposit = $partial_enabled && $use_deposit_requested && snapbook_can_use_partial_payment_for_date($session_date);
     $pay_pct  = $can_use_deposit ? 50 : 100;
-    $deposit  = round(($total * $pay_pct) / 100, 2);
+    // Payment fee sits on top of the booking total; the deposit split
+    // then applies to the fee-inclusive payable amount.
+    $fee_pct  = snapbook_get_payment_fee_pct();
+    $fee      = round(($total * $fee_pct) / 100, 2);
+    $payable  = round($total + $fee, 2);
+    $deposit  = round(($payable * $pay_pct) / 100, 2);
 
     $booking = [
         'product_id'    => $product_id,
@@ -1305,7 +1312,9 @@ function snapbook_ajax_place_booking_order()
         'package_id'    => absint(wp_unslash($_POST['package_id'] ?? 0)),
         'addons_label'  => sanitize_text_field(wp_unslash($_POST['addons_label'] ?? '')),
         'addons_total'  => floatval(wp_unslash($_POST['addons_total'] ?? 0)),
-        'total'         => $total,
+        'total'         => $payable,
+        'fee_pct'       => $fee_pct,
+        'fee_amount'    => $fee,
         'deposit'       => $deposit,
         'deposit_pct'   => $pay_pct,
         'session_date'  => $session_date,
@@ -1448,6 +1457,8 @@ function snapbook_create_booking_order($booking, $details, $payment_method = '')
         '_fpb_session_type'  => $booking['session_type'],
         '_fpb_package_name'  => $booking['package_name'],
         '_fpb_total'         => $booking['total'],
+        '_fpb_fee_pct'       => $booking['fee_pct'] ?? 0,
+        '_fpb_fee_amount'    => $booking['fee_amount'] ?? 0,
         '_fpb_deposit'       => $booking['deposit'],
         '_fpb_deposit_pct'   => $booking['deposit_pct'],
         '_fpb_balance_due'   => $balance_due,

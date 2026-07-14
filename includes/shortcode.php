@@ -432,6 +432,9 @@ function snapbook_shortcode($atts)
         'partialPaymentEnabled' => ((int) get_option('fpb_enable_partial_payment', 1) === 1),
         'partialBlockDays' => max(0, (int) get_option('fpb_partial_block_days', 0)),
         'partialOptionLabel' => get_option('fpb_partial_option_label', __('Book a slot to 50% Pay', 'snapbook')),
+        'paymentFeePct'   => snapbook_get_payment_fee_pct(),
+        'paymentFeeLabel' => __('PayPal fee', 'snapbook'),
+        'subtotalLabel'   => __('Subtotal', 'snapbook'),
         'whatsapp'   => get_option('fpb_whatsapp', ''),
         'confirmTitle'        => get_option('fpb_confirm_title', __('Booking Confirmed!', 'snapbook')),
         'confirmMsg'          => get_option('fpb_confirm_msg', __('Thank you for your booking! A confirmation email has been sent to {email}.', 'snapbook')),
@@ -763,7 +766,9 @@ function snapbook_render_shortcode($opts = [])
                     <div class="fpb-sumr"><span><?php esc_html_e('Package', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-pkg">—</span></div>
                     <div class="fpb-sumr"><span><?php esc_html_e('Date', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-date">—</span></div>
                     <div class="fpb-sumr"><span><?php esc_html_e('Add-ons', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-addons">—</span></div>
-                    <div class="fpb-sumr"><span><?php esc_html_e('Total price', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-price">—</span></div>
+                    <div class="fpb-sumr"><span id="fpb-sum-price-label"><?php esc_html_e('Total price', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-price">—</span></div>
+                    <div class="fpb-sumr fpb-sum-fee-row" id="fpb-sum-fee-row" style="display:none"><span id="fpb-sum-fee-label"><?php esc_html_e('PayPal fee', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-fee">—</span></div>
+                    <div class="fpb-sumr fpb-sum-payable-row" id="fpb-sum-payable-row" style="display:none"><span><?php esc_html_e('Total payable', 'snapbook'); ?></span><span class="fpb-v" id="fpb-sum-payable">—</span></div>
                     <div class="fpb-sumt">
                         <div>
                             <div class="fpb-sumtl"><?php esc_html_e('Due Now', 'snapbook'); ?></div>

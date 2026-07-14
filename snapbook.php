@@ -44,6 +44,17 @@ function snapbook_get_currency_symbol()
 }
 
 /**
+ * Payment (PayPal) fee percentage added on top of the booking total
+ * (package + add-ons). 0 disables the fee entirely. Configured in
+ * SnapBook → Settings → Payment Controls.
+ */
+function snapbook_get_payment_fee_pct()
+{
+    $pct = (float) get_option('fpb_payment_fee_pct', 0);
+    return min(100, max(0, $pct));
+}
+
+/**
  * URL of the icon-font stylesheet loaded on the booking form and the
  * SnapBook admin pages, so "fa-solid fa-*" icon values render. Defaults
  * to the Font Awesome 6 CDN. Filter 'snapbook_icon_library_url' to point

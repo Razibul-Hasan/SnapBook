@@ -71,8 +71,14 @@ function snapbook_ajax_preview_payment()
     $is_eligible = $partial_enabled && snapbook_can_use_partial_payment_for_date($session_date);
     $pay_pct = ($partial_enabled && $use_deposit_requested && $is_eligible) ? 50 : 100;
 
-    $due_today = round(($total * $pay_pct) / 100, 2);
-    $balance_due = max(0, round($total - $due_today, 2));
+    // Payment fee sits on top of the booking total; the deposit split
+    // then applies to the fee-inclusive payable amount.
+    $fee_pct = snapbook_get_payment_fee_pct();
+    $fee     = round(($total * $fee_pct) / 100, 2);
+    $payable = round($total + $fee, 2);
+
+    $due_today = round(($payable * $pay_pct) / 100, 2);
+    $balance_due = max(0, round($payable - $due_today, 2));
 
     wp_send_json_success([
         'payPct' => $pay_pct,
@@ -80,6 +86,9 @@ function snapbook_ajax_preview_payment()
         'dueToday' => $due_today,
         'balanceDue' => $balance_due,
         'total' => $total,
+        'feePct' => $fee_pct,
+        'feeAmount' => $fee,
+        'payable' => $payable,
     ]);
 }
 
@@ -166,7 +175,10 @@ function snapbook_ajax_add_to_cart()
     $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
     $can_use_deposit = $partial_enabled && $use_deposit_requested && snapbook_can_use_partial_payment_for_date($session_date);
     $pay_pct  = $can_use_deposit ? 50 : 100;
-    $deposit  = round(($total * $pay_pct) / 100, 2);
+    $fee_pct  = snapbook_get_payment_fee_pct();
+    $fee      = round(($total * $fee_pct) / 100, 2);
+    $payable  = round($total + $fee, 2);
+    $deposit  = round(($payable * $pay_pct) / 100, 2);
 
     $booking = [
         'product_id'    => $product_id,
@@ -175,7 +187,9 @@ function snapbook_ajax_add_to_cart()
         'package_id'    => absint(wp_unslash($_POST['package_id'] ?? 0)),
         'addons_label'  => sanitize_text_field(wp_unslash($_POST['addons_label']  ?? '')),
         'addons_total'  => floatval(wp_unslash($_POST['addons_total']  ?? 0)),
-        'total'         => $total,
+        'total'         => $payable,
+        'fee_pct'       => $fee_pct,
+        'fee_amount'    => $fee,
         'deposit'       => $deposit,
         'deposit_pct'   => $pay_pct,
         'client_name'   => sanitize_text_field(wp_unslash($_POST['client_name']   ?? '')),
@@ -336,6 +350,7 @@ function snapbook_admin_save_settings()
 
     update_option('fpb_enable_partial_payment', absint(wp_unslash($_POST['fpb_enable_partial_payment'] ?? 0)) === 1 ? 1 : 0);
     update_option('fpb_partial_block_days', max(0, absint(wp_unslash($_POST['fpb_partial_block_days'] ?? 0))));
+    update_option('fpb_payment_fee_pct', min(100, max(0, (float) wp_unslash($_POST['fpb_payment_fee_pct'] ?? 0))));
     update_option('fpb_require_account_booking', absint(wp_unslash($_POST['fpb_require_account_booking'] ?? 0)) === 1 ? 1 : 0);
     update_option('fpb_enable_balance_reminders', absint(wp_unslash($_POST['fpb_enable_balance_reminders'] ?? 0)) === 1 ? 1 : 0);
     update_option('fpb_balance_reminder_hours', max(1, absint(wp_unslash($_POST['fpb_balance_reminder_hours'] ?? 24))));

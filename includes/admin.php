@@ -749,6 +749,7 @@ function snapbook_page_settings()
         }
         update_option('fpb_enable_partial_payment', absint(wp_unslash($_POST['fpb_enable_partial_payment'] ?? 0)) === 1 ? 1 : 0);
         update_option('fpb_partial_block_days', max(0, absint(wp_unslash($_POST['fpb_partial_block_days'] ?? 0))));
+        update_option('fpb_payment_fee_pct', min(100, max(0, (float) wp_unslash($_POST['fpb_payment_fee_pct'] ?? 0))));
         update_option('fpb_require_account_booking', absint(wp_unslash($_POST['fpb_require_account_booking'] ?? 0)) === 1 ? 1 : 0);
         update_option('fpb_enable_balance_reminders', absint(wp_unslash($_POST['fpb_enable_balance_reminders'] ?? 0)) === 1 ? 1 : 0);
         update_option('fpb_balance_reminder_hours', max(1, absint(wp_unslash($_POST['fpb_balance_reminder_hours'] ?? 24))));
@@ -781,6 +782,7 @@ function snapbook_page_settings()
     $enable_partial_payment = (int) get_option('fpb_enable_partial_payment', 1);
     $partial_block_days = (int) get_option('fpb_partial_block_days', 0);
     $partial_option_label = get_option('fpb_partial_option_label', __('Book a slot to 50% Pay', 'snapbook'));
+    $payment_fee_pct = function_exists('snapbook_get_payment_fee_pct') ? snapbook_get_payment_fee_pct() : 0;
     $require_account_booking = (int) get_option('fpb_require_account_booking', 0);
     $enable_balance_reminders = (int) get_option('fpb_enable_balance_reminders', 0);
     $balance_reminder_hours = (int) get_option('fpb_balance_reminder_hours', 24);
@@ -919,6 +921,10 @@ function snapbook_page_settings()
     echo '</td></tr>';
     echo '<tr><th scope="row"><label for="fpb-partial-option-label">' . esc_html__('Frontend 50% option text', 'snapbook') . '</label></th><td>';
     echo '<input id="fpb-partial-option-label" class="regular-text" type="text" name="fpb_partial_option_label" value="' . esc_attr($partial_option_label) . '">';
+    echo '</td></tr>';
+    echo '<tr><th scope="row"><label for="fpb-payment-fee-pct">' . esc_html__('PayPal fee', 'snapbook') . '</label> <span class="dashicons dashicons-editor-help" style="font-size:16px;width:16px;height:16px;color:#787c82;cursor:help;vertical-align:-2px;" title="' . esc_attr__('Percentage added on top of the booking total (package + add-ons). Customers see the breakdown on the payment step: Subtotal + PayPal fee = Total payable.', 'snapbook') . '"></span></th><td>';
+    echo '<input id="fpb-payment-fee-pct" class="small-text" type="number" min="0" max="100" step="0.01" inputmode="decimal" name="fpb_payment_fee_pct" value="' . esc_attr(0 + $payment_fee_pct) . '" aria-describedby="fpb-payment-fee-desc"> <span aria-hidden="true">%</span>';
+    echo '<p class="description" id="fpb-payment-fee-desc">' . esc_html__('Added on top of the booking total and shown on the payment step as: Subtotal + PayPal fee = Total payable.', 'snapbook') . '<br>' . esc_html__('Example: with a 3% fee, a 100.00 booking is charged 103.00. Set 0 to disable the fee.', 'snapbook') . '</p>';
     echo '</td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Account Requirement', 'snapbook') . '</th><td>';
     echo '<label><input type="checkbox" name="fpb_require_account_booking" value="1" ' . checked(1, $require_account_booking, false) . '> ' . esc_html__('Require user account before booking checkout', 'snapbook') . '</label>';
