@@ -879,11 +879,99 @@
   function populatePaymentStep() {
     if (!selectedPkg) return;
     updateSummary();
+    if (snapbookData.hasWC && checkoutMode === "direct") {
+      // The WooCommerce payment section loads automatically on arrival —
+      // no duplicate method list and no "place booking" button click.
+      autoLoadPayment();
+      return;
+    }
     renderPaymentGateways();
     // Classic layout on (re)entry — the embedded payment section only
     // appears after "Place Booking & Pay" is clicked.
     const box = document.getElementById("fpb-embedPay");
     if (box) box.style.display = "none";
+    const btn = document.getElementById("fpb-checkoutBtn");
+    if (btn) {
+      btn.disabled = false;
+      btn.style.display = "";
+    }
+  }
+
+  /* -------------------------------------------------
+     Direct mode — create/refresh the pending order as
+     soon as the customer arrives on step 4 and embed
+     the WooCommerce payment section, so the native
+     gateway list (PayPal buttons, card fields, Pay
+     button) shows without any extra click.
+  ------------------------------------------------- */
+  function autoLoadPayment() {
+    const btn = document.getElementById("fpb-checkoutBtn");
+    if (btn) btn.style.display = "none";
+    const gatewayBox = document.getElementById("fpb-gatewayBox");
+    if (gatewayBox) gatewayBox.style.display = "none";
+
+    const payload = buildOrderPayload("");
+    const snapshot = JSON.stringify(payload);
+
+    // Booking unchanged since its order was created — just show it again
+    // instead of superseding the order with an identical one.
+    if (
+      embedOrder &&
+      embedOrder.snapshot === snapshot &&
+      document.getElementById("fpb-embedPayFrame")
+    ) {
+      applyEmbedLayout();
+      return;
+    }
+
+    const msg = document.getElementById("fpb-checkoutMsg");
+    if (msg) {
+      msg.textContent = "Loading payment options…";
+      msg.className = "fpb-checkout-msg";
+    }
+
+    if (embedOrder) {
+      // The booking was edited — supersede the previous pending order.
+      payload.previous_order_id = embedOrder.id;
+      payload.previous_order_key = embedOrder.key;
+    }
+
+    post("snapbook_place_order", payload)
+      .then((r) => {
+        if (r.success && r.data && r.data.embed_url) {
+          embedOrder = {
+            id: r.data.order_id,
+            key: r.data.order_key || "",
+            snapshot: snapshot,
+          };
+          if (msg) msg.textContent = "";
+          showEmbeddedPayment(r.data, true);
+        } else if (r.success && r.data && r.data.redirect_url) {
+          window.location.href = r.data.redirect_url;
+        } else {
+          paymentAutoLoadFailed(
+            r.data && r.data.message
+              ? r.data.message
+              : "Could not load the payment options. Please try again.",
+          );
+        }
+      })
+      .catch(() => {
+        paymentAutoLoadFailed(
+          "Network error. Check your connection and try again.",
+        );
+      });
+  }
+
+  // Fall back to the manual method list + button so the customer is
+  // never stuck on step 4 if the automatic order creation fails.
+  function paymentAutoLoadFailed(text) {
+    const msg = document.getElementById("fpb-checkoutMsg");
+    if (msg) {
+      msg.textContent = text;
+      msg.className = "fpb-checkout-msg fpb-err";
+    }
+    renderPaymentGateways();
     const btn = document.getElementById("fpb-checkoutBtn");
     if (btn) {
       btn.disabled = false;
@@ -1232,7 +1320,7 @@
     if (box) box.style.display = "";
   }
 
-  function showEmbeddedPayment(d) {
+  function showEmbeddedPayment(d, skipScroll) {
     const payWrap = document.getElementById("fpb-payWrap");
     if (!payWrap) {
       window.location.href = d.redirect_url || d.pay_url;
@@ -1263,9 +1351,9 @@
         try {
           const href = frame.contentWindow.location.href;
           if (href && href.indexOf("order-received") !== -1) {
-            // Payment finished inside the frame — show the real
-            // order-received page full screen.
-            window.location.href = d.received_url || href;
+            // Payment finished inside the frame — swap the payment step
+            // for the in-form success message.
+            onEmbeddedPaymentComplete(href);
             return;
           }
           syncEmbedHeight(frame);
@@ -1279,7 +1367,36 @@
     if (link) link.href = d.redirect_url || d.pay_url || "#";
     document.getElementById("fpb-embedPayFrame").src = d.embed_url;
     box.style.display = "";
-    box.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!skipScroll) {
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  /* -------------------------------------------------
+     Payment finished inside the embedded frame — show
+     the in-form confirmation panel (success message)
+     with the order's fresh status instead of leaving
+     the booking form for the order-received page.
+  ------------------------------------------------- */
+  function onEmbeddedPaymentComplete(receivedUrl) {
+    if (!embedOrder) {
+      window.location.href = receivedUrl;
+      return;
+    }
+    post("snapbook_order_confirmation", {
+      order_id: embedOrder.id,
+      order_key: embedOrder.key,
+    })
+      .then((r) => {
+        if (r.success && r.data && r.data.order_id) {
+          showBookingConfirmation(r.data);
+        } else {
+          window.location.href = receivedUrl;
+        }
+      })
+      .catch(() => {
+        window.location.href = receivedUrl;
+      });
   }
 
   /* -------------------------------------------------

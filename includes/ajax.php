@@ -114,6 +114,12 @@ function snapbook_ajax_get_payment_gateways()
         wp_send_json_success(['gateways' => []]);
     }
 
+    // Session-dependent gateways (e.g. PayPal Payments) hide themselves
+    // when no frontend session/cart is loaded, as on admin-ajax requests.
+    if (function_exists('snapbook_ensure_wc_frontend_context')) {
+        snapbook_ensure_wc_frontend_context();
+    }
+
     $gateways = [];
     $payment_gateways = WC()->payment_gateways();
     if ($payment_gateways && method_exists($payment_gateways, 'get_available_payment_gateways')) {

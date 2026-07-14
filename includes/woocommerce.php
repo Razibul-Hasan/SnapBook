@@ -965,6 +965,42 @@ function snapbook_get_balance_order_for($parent_order, $create = false)
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   Show the booked add-ons under the product name in order item
+   tables — order emails (incl. the customer invoice email),
+   order-received / My Account pages, and PDF-invoice plugins that
+   render item meta through wc_display_item_meta().
+═══════════════════════════════════════════════════════════════ */
+add_filter('woocommerce_display_item_meta', 'snapbook_display_addons_item_meta', 10, 3);
+function snapbook_display_addons_item_meta($html, $item, $args)
+{
+    if (! is_a($item, 'WC_Order_Item_Product')) {
+        return $html;
+    }
+    $addons = (string) $item->get_meta('_fpb_addons_label', true);
+    if ($addons === '') {
+        return $html;
+    }
+
+    $before       = (string) ($args['before'] ?? '');
+    $after        = (string) ($args['after'] ?? '');
+    $separator    = (string) ($args['separator'] ?? '');
+    $label_before = (string) ($args['label_before'] ?? '');
+    $label_after  = (string) ($args['label_after'] ?? '');
+
+    $value = ! empty($args['autop']) ? wpautop(esc_html($addons)) : esc_html($addons);
+    $entry = $label_before . esc_html__('Add-ons', 'snapbook') . $label_after . $value;
+
+    if ($html === '') {
+        return $before . $entry . $after;
+    }
+    // Append as one more meta row inside the existing list wrapper.
+    if ($after !== '' && substr($html, -strlen($after)) === $after) {
+        return substr($html, 0, -strlen($after)) . $separator . $entry . $after;
+    }
+    return $html . $separator . $entry;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    Include the remaining-balance payment link in the customer's
    first booking email (order confirmation), not just later reminders.
 ═══════════════════════════════════════════════════════════════ */
@@ -1038,6 +1074,22 @@ function snapbook_email_append_balance_link($order, $sent_to_admin = false, $pla
    form (Details step) and send the customer to the WooCommerce
    order-payment page, skipping the checkout form page entirely.
 ═══════════════════════════════════════════════════════════════ */
+/**
+ * admin-ajax.php requests don't load the frontend session/cart, so
+ * session-dependent gateways (PayPal Payments, some card processors)
+ * report themselves unavailable there. Boot the customer session and
+ * cart before asking WooCommerce which gateways are available.
+ */
+function snapbook_ensure_wc_frontend_context()
+{
+    if (! function_exists('WC') || ! WC()) {
+        return;
+    }
+    if (function_exists('wc_load_cart') && (null === WC()->cart || null === WC()->session)) {
+        wc_load_cart();
+    }
+}
+
 /**
  * Whether a gateway completes payment without any customer interaction
  * (no secure card fields, no external approval step). Only these may be
@@ -1141,6 +1193,49 @@ function snapbook_embedded_pay_template($template)
     }
 
     return $template;
+}
+
+/**
+ * Fresh order state for the in-form confirmation panel, shown after the
+ * customer finishes paying inside the embedded payment frame. The order
+ * key acts as the authorization token, like on the order-pay page.
+ */
+add_action('wp_ajax_snapbook_order_confirmation',        'snapbook_ajax_order_confirmation');
+add_action('wp_ajax_nopriv_snapbook_order_confirmation', 'snapbook_ajax_order_confirmation');
+function snapbook_ajax_order_confirmation()
+{
+    check_ajax_referer('snapbook_nonce', 'nonce');
+
+    if (! class_exists('WooCommerce')) {
+        wp_send_json_error();
+    }
+
+    $order_id  = absint(wp_unslash($_POST['order_id'] ?? 0));
+    $order_key = sanitize_text_field(wp_unslash($_POST['order_key'] ?? ''));
+
+    $order = $order_id > 0 ? wc_get_order($order_id) : false;
+    if (! $order || $order_key === '' || ! hash_equals($order->get_order_key(), $order_key)) {
+        wp_send_json_error();
+    }
+    if ($order->get_created_via() !== 'snapbook') {
+        wp_send_json_error();
+    }
+
+    $status = $order->get_status();
+
+    wp_send_json_success([
+        'order_id'          => (int) $order->get_id(),
+        'order_number'      => (string) $order->get_order_number(),
+        'status'            => $status,
+        'status_label'      => function_exists('wc_get_order_status_name') ? wc_get_order_status_name($status) : $status,
+        'due_now'           => (float) $order->get_total(),
+        'currency'          => snapbook_get_currency_symbol(),
+        'gateway_title'     => wp_strip_all_tags((string) $order->get_payment_method_title()),
+        'payment_processed' => ! in_array($status, ['pending', 'failed', 'cancelled'], true),
+        'client_email'      => (string) $order->get_billing_email(),
+        'pay_url'           => $order->get_checkout_payment_url(),
+        'received_url'      => $order->get_checkout_order_received_url(),
+    ]);
 }
 
 add_action('wp_ajax_snapbook_place_order',        'snapbook_ajax_place_booking_order');
@@ -1249,6 +1344,7 @@ function snapbook_ajax_place_booking_order()
     $gateway_title = '';
 
     if ($payment_method !== '' && WC()->payment_gateways()) {
+        snapbook_ensure_wc_frontend_context();
         $available = WC()->payment_gateways()->get_available_payment_gateways();
         if (isset($available[$payment_method])) {
             $gateway       = $available[$payment_method];
