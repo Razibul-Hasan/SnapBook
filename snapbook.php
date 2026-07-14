@@ -4,13 +4,13 @@
  * Plugin Name:  SnapBook
  * Plugin URI:   https://bestwebexpert.com
  * Description:  Multi-step photography booking with backend management and WooCommerce checkout. Shortcode: [snapbook]
- * Version:      1.0.0
+ * Version:      2.5.0
  * Author:       Razibul Hasan
  * Author URI:   https://bestwebexpert.com
  * Text Domain:  snapbook
  * License:      GPL-2.0+
  * License URI:  https://www.gnu.org/licenses/gpl-2.0.html
- * Requires at least: 7.0
+ * Requires at least: 6.0
  * Requires PHP: 7.4
  * WC requires at least: 7.0
  * WC tested up to: 9.0
@@ -41,6 +41,17 @@ function snapbook_get_currency_symbol()
     }
 
     return get_option('fpb_currency_sym', '€');
+}
+
+/**
+ * Payment (PayPal) fee percentage added on top of the booking total
+ * (package + add-ons). 0 disables the fee entirely. Configured in
+ * SnapBook → Settings → Payment Controls.
+ */
+function snapbook_get_payment_fee_pct()
+{
+    $pct = (float) get_option('fpb_payment_fee_pct', 0);
+    return min(100, max(0, $pct));
 }
 
 /**

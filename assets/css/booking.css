@@ -286,6 +286,20 @@
   color: #c0392b;
 }
 
+/* Inline spinner while the payment section is being prepared */
+.fpb-wrap .fpb-checkout-msg.fpb-is-loading-pay::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 0.5em;
+  vertical-align: -2px;
+  border: 2px solid var(--fpb-border);
+  border-top-color: var(--fpb-teal);
+  border-radius: 50%;
+  animation: fpb-spin 0.7s linear infinite;
+}
+
 /* ── Step 1: date calendar ── */
 .fpb-wrap .fpb-datesec {
   margin-top: 0.4rem;
@@ -1054,8 +1068,8 @@
 .fpb-wrap .fpb-bsum {
   background: var(--fpb-off);
   border: 1px solid var(--fpb-border);
-  border-radius: 4px;
-  padding: 1.2rem;
+  border-radius: 6px;
+  padding: 1.2rem 1.3rem;
   margin: 1.2rem 0;
 }
 
@@ -1132,6 +1146,30 @@
 .fpb-wrap .fpb-sum-note strong {
   color: var(--fpb-teal);
   font-weight: 600;
+}
+
+/* Payment fee + total payable rows (shown when a fee % is configured) */
+.fpb-wrap .fpb-sum-fee-row .fpb-v {
+  color: var(--fpb-teal);
+  font-weight: 600;
+}
+
+.fpb-wrap .fpb-sum-payable-row {
+  margin-top: 0.15rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--fpb-border);
+  border-bottom: none;
+}
+
+.fpb-wrap .fpb-sum-payable-row span:first-child {
+  font-weight: 600;
+  color: var(--fpb-text);
+}
+
+.fpb-wrap .fpb-sum-payable-row .fpb-v {
+  font-weight: 700;
+  font-size: 1.02rem;
+  color: var(--fpb-teal);
 }
 
 /* ── Step 4: payment methods ── */
@@ -1243,11 +1281,27 @@
 /* ── Embedded secure payment (order-pay page in an iframe) ── */
 .fpb-wrap .fpb-embed-pay {
   margin-top: 1.4rem;
-  padding: 1rem 1.1rem;
+  padding: 1rem 1.2rem 0.9rem;
   background: var(--fpb-w);
   border: 1px solid var(--fpb-border);
   border-radius: 6px;
   box-shadow: var(--fpb-sh);
+}
+
+.fpb-wrap .fpb-embed-pay .fpb-gateway-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
+  border-bottom: 1px solid var(--fpb-border);
+}
+
+.fpb-wrap .fpb-embed-pay .fpb-gateway-title .dashicons {
+  font-size: 17px;
+  width: 17px;
+  height: 17px;
+  color: var(--fpb-teal);
 }
 
 .fpb-wrap .fpb-embed-pay iframe {
@@ -1261,8 +1315,42 @@
   transition: height 0.25s ease;
 }
 
+/* While the payment page loads: collapse the empty frame and show a
+   centred spinner instead, so there is never a blank white block. */
+.fpb-wrap .fpb-embed-pay-loading {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  min-height: 150px;
+  font-size: 0.82rem;
+  color: var(--fpb-muted);
+}
+
+.fpb-wrap .fpb-embed-pay.fpb-embed-loading .fpb-embed-pay-loading {
+  display: flex;
+}
+
+.fpb-wrap .fpb-embed-pay.fpb-embed-loading iframe {
+  height: 0 !important;
+  min-height: 0;
+  opacity: 0;
+}
+
+.fpb-wrap .fpb-embed-spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 2.5px solid var(--fpb-border);
+  border-top-color: var(--fpb-gold);
+  border-radius: 50%;
+  animation: fpb-spin 0.7s linear infinite;
+}
+
 .fpb-wrap .fpb-embed-pay-alt {
-  margin: 0.7rem 0 0;
+  margin: 0.8rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--fpb-border);
   font-size: 0.78rem;
   color: var(--fpb-muted);
   text-align: center;

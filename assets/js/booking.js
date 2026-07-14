@@ -437,9 +437,12 @@
       0,
     );
     const total = parseFloat(selectedPkg.price || 0) + addonsTotal;
+    const feePct = getPaymentFeePct();
+    const fee = Math.round(total * feePct) / 100;
+    const payable = Math.round((total + fee) * 100) / 100;
     const effectiveDepPct = getEffectiveDepositPct();
-    const dueNow = Math.round(total * effectiveDepPct) / 100;
-    const balance = Math.max(0, total - dueNow);
+    const dueNow = Math.round(payable * effectiveDepPct) / 100;
+    const balance = Math.max(0, payable - dueNow);
     const activeSess = sessions.find(
       (s) => parseInt(s.id, 10) === activeSessionId,
     );
@@ -483,6 +486,7 @@
         : "None",
     );
     setTxt("fpb-sum-price", cur + total.toFixed(2));
+    updateFeeRows(fee, payable, feePct);
     setTxt("fpb-sum-total", cur + dueNow.toFixed(2));
     setTxt(
       "fpb-sum-dep",
@@ -497,6 +501,41 @@
     const row = document.getElementById("fpb-sum-balance-row");
     if (row) row.style.display = balance > 0.01 ? "" : "none";
     setTxt("fpb-sum-balance", cur + balance.toFixed(2));
+  }
+
+  function getPaymentFeePct() {
+    const p = parseFloat(snapbookData.paymentFeePct || 0);
+    return isNaN(p) || p <= 0 ? 0 : Math.min(100, p);
+  }
+
+  // Fee + total-payable rows sit right above the Due Now total; both stay
+  // hidden while no fee percentage is configured in the settings.
+  function updateFeeRows(fee, payable, feePct) {
+    const feeRow = document.getElementById("fpb-sum-fee-row");
+    const payableRow = document.getElementById("fpb-sum-payable-row");
+    const show = feePct > 0;
+    if (feeRow) feeRow.style.display = show ? "" : "none";
+    if (payableRow) payableRow.style.display = show ? "" : "none";
+    // One total only: with the fee breakdown visible the first row becomes
+    // "Subtotal" and "Total payable" is the single total.
+    const priceLabel = document.getElementById("fpb-sum-price-label");
+    if (priceLabel) {
+      if (!priceLabel.dataset.orig)
+        priceLabel.dataset.orig = priceLabel.textContent;
+      priceLabel.textContent = show
+        ? snapbookData.subtotalLabel || "Subtotal"
+        : priceLabel.dataset.orig;
+    }
+    if (!show) return;
+    setTxt(
+      "fpb-sum-fee-label",
+      (snapbookData.paymentFeeLabel || "PayPal fee") +
+        " (" +
+        parseFloat(feePct.toFixed(2)) +
+        "%)",
+    );
+    setTxt("fpb-sum-fee", "+" + cur + fee.toFixed(2));
+    setTxt("fpb-sum-payable", cur + payable.toFixed(2));
   }
 
   function refreshPaymentPreview(total) {
@@ -516,6 +555,12 @@
         const payPct = parseInt(paymentPreview.payPct || 100, 10);
         const balanceDue = parseFloat(paymentPreview.balanceDue || 0);
 
+        // Server-computed fee numbers are authoritative for the summary.
+        updateFeeRows(
+          parseFloat(paymentPreview.feeAmount || 0),
+          parseFloat(paymentPreview.payable || paymentPreview.total || 0),
+          parseFloat(paymentPreview.feePct || 0),
+        );
         setTxt("fpb-sum-total", cur + dueToday.toFixed(2));
         setTxt(
           "fpb-sum-dep",
@@ -879,11 +924,102 @@
   function populatePaymentStep() {
     if (!selectedPkg) return;
     updateSummary();
+    if (snapbookData.hasWC && checkoutMode === "direct") {
+      // The WooCommerce payment section loads automatically on arrival —
+      // no duplicate method list and no "place booking" button click.
+      autoLoadPayment();
+      return;
+    }
     renderPaymentGateways();
     // Classic layout on (re)entry — the embedded payment section only
     // appears after "Place Booking & Pay" is clicked.
     const box = document.getElementById("fpb-embedPay");
     if (box) box.style.display = "none";
+    const btn = document.getElementById("fpb-checkoutBtn");
+    if (btn) {
+      btn.disabled = false;
+      btn.style.display = "";
+    }
+  }
+
+  /* -------------------------------------------------
+     Direct mode — create/refresh the pending order as
+     soon as the customer arrives on step 4 and embed
+     the WooCommerce payment section, so the native
+     gateway list (PayPal buttons, card fields, Pay
+     button) shows without any extra click.
+  ------------------------------------------------- */
+  function autoLoadPayment() {
+    const btn = document.getElementById("fpb-checkoutBtn");
+    if (btn) btn.style.display = "none";
+    const gatewayBox = document.getElementById("fpb-gatewayBox");
+    if (gatewayBox) gatewayBox.style.display = "none";
+
+    const payload = buildOrderPayload("");
+    const snapshot = JSON.stringify(payload);
+
+    // Booking unchanged since its order was created — just show it again
+    // instead of superseding the order with an identical one.
+    if (
+      embedOrder &&
+      embedOrder.snapshot === snapshot &&
+      document.getElementById("fpb-embedPayFrame")
+    ) {
+      applyEmbedLayout();
+      return;
+    }
+
+    const msg = document.getElementById("fpb-checkoutMsg");
+    if (msg) {
+      msg.textContent = "Loading payment options…";
+      msg.className = "fpb-checkout-msg fpb-is-loading-pay";
+    }
+
+    if (embedOrder) {
+      // The booking was edited — supersede the previous pending order.
+      payload.previous_order_id = embedOrder.id;
+      payload.previous_order_key = embedOrder.key;
+    }
+
+    post("snapbook_place_order", payload)
+      .then((r) => {
+        if (r.success && r.data && r.data.embed_url) {
+          embedOrder = {
+            id: r.data.order_id,
+            key: r.data.order_key || "",
+            snapshot: snapshot,
+          };
+          if (msg) {
+            msg.textContent = "";
+            msg.className = "fpb-checkout-msg";
+          }
+          showEmbeddedPayment(r.data, true);
+        } else if (r.success && r.data && r.data.redirect_url) {
+          window.location.href = r.data.redirect_url;
+        } else {
+          paymentAutoLoadFailed(
+            r.data && r.data.message
+              ? r.data.message
+              : "Could not load the payment options. Please try again.",
+          );
+        }
+      })
+      .catch(() => {
+        paymentAutoLoadFailed(
+          "Network error. Check your connection and try again.",
+        );
+      });
+  }
+
+  // Fall back to the manual method list + button so the customer is
+  // never stuck on step 4 if the automatic order creation fails.
+  function paymentAutoLoadFailed(text) {
+    const msg = document.getElementById("fpb-checkoutMsg");
+    if (msg) {
+      msg.textContent = text;
+      msg.className = "fpb-checkout-msg fpb-err";
+    }
+    renderPaymentGateways();
     const btn = document.getElementById("fpb-checkoutBtn");
     if (btn) {
       btn.disabled = false;
@@ -1232,7 +1368,7 @@
     if (box) box.style.display = "";
   }
 
-  function showEmbeddedPayment(d) {
+  function showEmbeddedPayment(d, skipScroll) {
     const payWrap = document.getElementById("fpb-payWrap");
     if (!payWrap) {
       window.location.href = d.redirect_url || d.pay_url;
@@ -1252,7 +1388,12 @@
       box.id = "fpb-embedPay";
       box.className = "fpb-embed-pay";
       box.innerHTML =
-        '<div class="fpb-gateway-title">Secure Payment</div>' +
+        '<div class="fpb-gateway-title">' +
+        '<span class="dashicons dashicons-lock" aria-hidden="true"></span>' +
+        "Secure Payment</div>" +
+        '<div class="fpb-embed-pay-loading" aria-hidden="true">' +
+        '<span class="fpb-embed-spinner"></span>' +
+        '<span id="fpb-embedPayLoadingText">Loading secure payment…</span></div>' +
         '<iframe id="fpb-embedPayFrame" title="Secure payment" allow="payment"></iframe>' +
         '<p class="fpb-embed-pay-alt">Having trouble paying? ' +
         '<a id="fpb-embedPayLink" href="#">Open the secure payment page</a>.</p>';
@@ -1260,26 +1401,82 @@
 
       const frame = document.getElementById("fpb-embedPayFrame");
       frame.addEventListener("load", () => {
+        let href = "";
         try {
-          const href = frame.contentWindow.location.href;
-          if (href && href.indexOf("order-received") !== -1) {
-            // Payment finished inside the frame — show the real
-            // order-received page full screen.
-            window.location.href = d.received_url || href;
-            return;
-          }
-          syncEmbedHeight(frame);
+          href = frame.contentWindow.location.href;
         } catch (e) {
-          // Frame navigated to an external (cross-origin) page — ignore.
+          href = ""; // cross-origin page (external gateway step)
+        }
+
+        if (href && href.indexOf("order-received") !== -1) {
+          // Payment finished — go straight to the in-form success
+          // message. The frame stays hidden behind the spinner, so the
+          // themed order-details page never flashes inside the box.
+          onEmbeddedPaymentComplete(href);
+          return;
+        }
+
+        // Payment form (or a same-origin retry page, or an external page
+        // that needs interaction) — reveal the frame.
+        box.classList.remove("fpb-embed-loading");
+
+        if (href) {
+          try {
+            syncEmbedHeight(frame);
+            // The moment this page navigates away (Pay clicked, gateway
+            // redirect), hide the frame again so no interim page shows.
+            frame.contentWindow.addEventListener("pagehide", () => {
+              setTxt("fpb-embedPayLoadingText", "Processing your payment…");
+              box.classList.add("fpb-embed-loading");
+            });
+          } catch (e) {
+            // Frame navigated away already — ignore.
+          }
         }
       });
     }
 
     const link = document.getElementById("fpb-embedPayLink");
     if (link) link.href = d.redirect_url || d.pay_url || "#";
+    setTxt("fpb-embedPayLoadingText", "Loading secure payment…");
+    box.classList.add("fpb-embed-loading");
     document.getElementById("fpb-embedPayFrame").src = d.embed_url;
     box.style.display = "";
-    box.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // The Back button belongs below the payment form.
+    const nav = payWrap.querySelector(".fpb-nav");
+    if (nav) payWrap.appendChild(nav);
+
+    if (!skipScroll) {
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  /* -------------------------------------------------
+     Payment finished inside the embedded frame — show
+     the in-form confirmation panel (success message)
+     with the order's fresh status instead of leaving
+     the booking form for the order-received page.
+  ------------------------------------------------- */
+  function onEmbeddedPaymentComplete(receivedUrl) {
+    if (!embedOrder) {
+      window.location.href = receivedUrl;
+      return;
+    }
+    post("snapbook_order_confirmation", {
+      order_id: embedOrder.id,
+      order_key: embedOrder.key,
+    })
+      .then((r) => {
+        if (r.success && r.data && r.data.order_id) {
+          showBookingConfirmation(r.data);
+        } else {
+          window.location.href = receivedUrl;
+        }
+      })
+      .catch(() => {
+        window.location.href = receivedUrl;
+      });
   }
 
   /* -------------------------------------------------
