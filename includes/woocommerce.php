@@ -1072,6 +1072,165 @@ function snapbook_email_append_balance_link($order, $sent_to_admin = false, $pla
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   Order confirmation email extras — an editable message block and
+   a file attachment (e.g. a Terms of Service PDF), both managed in
+   SnapBook → Settings → Order Email.
+═══════════════════════════════════════════════════════════════ */
+
+/**
+ * The customer-facing confirmation emails that carry the message block and
+ * the attachment. Admin notifications and the balance invoice are excluded
+ * on purpose, so the terms go out once, with the booking confirmation.
+ */
+function snapbook_order_confirmation_email_ids()
+{
+    return (array) apply_filters('snapbook_order_confirmation_email_ids', [
+        'customer_processing_order',
+        'customer_completed_order',
+        'customer_on_hold_order',
+    ]);
+}
+
+/**
+ * Booking details for an order. The main order keeps them on the booking
+ * line item; balance orders carry copies as order-level meta.
+ */
+function snapbook_get_order_booking_meta($order)
+{
+    $out = ['session_type' => '', 'package_name' => '', 'session_date' => ''];
+    if (! $order || ! is_a($order, 'WC_Order')) {
+        return $out;
+    }
+
+    $product_id = (int) get_option('fpb_wc_product_id', 0);
+    foreach ($order->get_items() as $item) {
+        if ($product_id && (int) $item->get_product_id() !== $product_id) {
+            continue;
+        }
+        $out['session_type'] = (string) $item->get_meta('_fpb_session_type');
+        $out['package_name'] = (string) $item->get_meta('_fpb_package_name');
+        $out['session_date'] = (string) $item->get_meta('_fpb_session_date');
+        break;
+    }
+
+    foreach (['package_name', 'session_date'] as $key) {
+        if ($out[$key] === '') {
+            $out[$key] = (string) $order->get_meta('_fpb_' . $key, true);
+        }
+    }
+    if ($out['session_date'] === '') {
+        $out['session_date'] = (string) $order->get_meta('_fpb_billing_event_date', true);
+    }
+
+    return $out;
+}
+
+/**
+ * {placeholder} => value map for the editable order email message.
+ */
+function snapbook_order_email_placeholders($order)
+{
+    $meta   = snapbook_get_order_booking_meta($order);
+    $symbol = function_exists('get_woocommerce_currency_symbol')
+        ? get_woocommerce_currency_symbol($order->get_currency())
+        : snapbook_get_currency_symbol();
+    // WooCommerce returns the symbol as an HTML entity (e.g. &#2547;).
+    // Decode it to a real character so the value is correct in both the
+    // HTML block and the plain-text email, and survives escaping.
+    $symbol = html_entity_decode((string) $symbol, ENT_QUOTES, 'UTF-8');
+
+    $first = (string) $order->get_billing_first_name();
+    $full  = trim($first . ' ' . $order->get_billing_last_name());
+
+    return [
+        '{customer_name}' => $full !== '' ? $full : __('there', 'snapbook'),
+        '{first_name}'    => $first !== '' ? $first : __('there', 'snapbook'),
+        '{session_type}'  => $meta['session_type'],
+        '{package_name}'  => $meta['package_name'],
+        '{session_date}'  => $meta['session_date'] !== '' ? $meta['session_date'] : __('N/A', 'snapbook'),
+        '{order_id}'      => '#' . $order->get_order_number(),
+        '{total}'         => $symbol . number_format((float) $order->get_total(), 2),
+        '{site_name}'     => get_bloginfo('name'),
+    ];
+}
+
+add_action('woocommerce_email_after_order_table', 'snapbook_email_append_order_message', 12, 4);
+function snapbook_email_append_order_message($order, $sent_to_admin = false, $plain_text = false, $email = null)
+{
+    if ($sent_to_admin || ! $order || ! is_a($order, 'WC_Order')) {
+        return;
+    }
+    if (! function_exists('snapbook_get_order_email_settings')) {
+        return;
+    }
+    $settings = snapbook_get_order_email_settings();
+    if ((int) $settings['enable'] !== 1 || trim($settings['message']) === '') {
+        return;
+    }
+    // Confirmation emails only — never the balance invoice.
+    if (! $email || ! in_array($email->id, snapbook_order_confirmation_email_ids(), true)) {
+        return;
+    }
+    if ((int) $order->get_meta('_fpb_is_balance_order', true) === 1 || ! snapbook_is_booking_order($order)) {
+        return;
+    }
+
+    $tokens  = snapbook_order_email_placeholders($order);
+    $heading = trim(strtr($settings['heading'], $tokens));
+    $message = strtr($settings['message'], $tokens);
+
+    if ($plain_text) {
+        // Plain-text email: strip markup and decode entities. Escaping here
+        // would corrupt the text (an "&" would arrive as "&amp;").
+        echo "\n----------------------------------------\n\n";
+        if ($heading !== '') {
+            echo html_entity_decode(wp_strip_all_tags($heading), ENT_QUOTES, 'UTF-8') . "\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+        }
+        echo html_entity_decode(wp_strip_all_tags($message), ENT_QUOTES, 'UTF-8') . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+        return;
+    }
+
+    // Self-contained inline styles — email clients don't load the plugin CSS.
+    echo '<div style="margin:24px 0;padding:20px 24px;border:1px solid #e8e3dc;border-radius:8px;background:#faf8f5;">';
+    if ($heading !== '') {
+        echo '<h2 style="margin:0 0 8px;font-size:18px;line-height:1.3;color:#1d2327;">' . esc_html($heading) . '</h2>';
+    }
+    echo '<div style="font-size:14px;line-height:1.6;color:#1d2327;">' . wp_kses_post(wpautop($message)) . '</div>';
+    echo '</div>';
+}
+
+add_filter('woocommerce_email_attachments', 'snapbook_email_attach_order_file', 10, 4);
+function snapbook_email_attach_order_file($attachments, $email_id = '', $object = null, $email = null)
+{
+    $attachments = (array) $attachments;
+
+    if (! function_exists('snapbook_get_order_email_settings')) {
+        return $attachments;
+    }
+    $attachment_id = (int) snapbook_get_order_email_settings()['attachment_id'];
+    if ($attachment_id < 1) {
+        return $attachments;
+    }
+    if (! in_array((string) $email_id, snapbook_order_confirmation_email_ids(), true)) {
+        return $attachments;
+    }
+    if (! $object || ! is_a($object, 'WC_Order') || ! snapbook_is_booking_order($object)) {
+        return $attachments;
+    }
+    if ((int) $object->get_meta('_fpb_is_balance_order', true) === 1) {
+        return $attachments;
+    }
+
+    // A deleted or unreadable media item must never break the email.
+    $path = get_attached_file($attachment_id);
+    if ($path && is_readable($path) && ! in_array($path, $attachments, true)) {
+        $attachments[] = $path;
+    }
+
+    return $attachments;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    Direct checkout — create the order straight from the booking
    form (Details step) and send the customer to the WooCommerce
    order-payment page, skipping the checkout form page entirely.

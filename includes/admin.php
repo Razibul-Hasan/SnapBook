@@ -22,6 +22,7 @@ function snapbook_admin_menu()
     add_submenu_page('sb-bookings', __('Add-ons', 'snapbook'),         __('Add-ons', 'snapbook'),         'manage_options', 'sb-addons',         'snapbook_page_addons');
     add_submenu_page('sb-bookings', __('Date Slots', 'snapbook'),      __('Date Slots', 'snapbook'),      'manage_options', 'sb-dates',          'snapbook_page_dates');
     add_submenu_page('sb-bookings', __('Settings', 'snapbook'),        __('Settings', 'snapbook'),        'manage_options', 'sb-settings',       'snapbook_page_settings');
+    add_submenu_page('sb-bookings', __('Frontend', 'snapbook'),        __('Frontend', 'snapbook'),        'manage_options', 'sb-frontend',       'snapbook_page_frontend');
 }
 
 /* ─── Admin assets ─────────────────────────────────────────── */
@@ -34,6 +35,8 @@ function snapbook_admin_assets($hook)
     if ($icon_lib !== '') {
         wp_enqueue_style('snapbook-icons', $icon_lib, [], SNAPBOOK_VER);
     }
+    // Media library — the Order Email attachment picker opens wp.media.
+    wp_enqueue_media();
     wp_enqueue_script('snapbook-admin',    SNAPBOOK_URL . 'assets/js/admin.js',   [], SNAPBOOK_VER, true);
     wp_localize_script('snapbook-admin', 'snapbookAdmin', [
         'ajaxUrl' => admin_url('admin-ajax.php'),
@@ -111,6 +114,7 @@ function snapbook_wrap_open($title, $active_tab = '', $subtitle = '')
         'sb-addons'   => ['label' => __('Add-ons', 'snapbook'),       'icon' => 'dashicons-star-filled'],
         'sb-dates'    => ['label' => __('Date Slots', 'snapbook'),    'icon' => 'dashicons-calendar-alt'],
         'sb-settings' => ['label' => __('Settings', 'snapbook'),      'icon' => 'dashicons-admin-generic'],
+        'sb-frontend' => ['label' => __('Frontend', 'snapbook'),      'icon' => 'dashicons-layout'],
     ];
     echo '<div class="wrap fpb-admin-wrap">';
     echo '<div class="sb-topbar">';
@@ -754,6 +758,10 @@ function snapbook_page_settings()
         update_option('fpb_enable_balance_reminders', absint(wp_unslash($_POST['fpb_enable_balance_reminders'] ?? 0)) === 1 ? 1 : 0);
         update_option('fpb_balance_reminder_hours', max(1, absint(wp_unslash($_POST['fpb_balance_reminder_hours'] ?? 24))));
         update_option('fpb_balance_reminder_template', wp_kses_post(wp_unslash($_POST['fpb_balance_reminder_template'] ?? '')));
+        update_option('fpb_order_email_enable', absint(wp_unslash($_POST['fpb_order_email_enable'] ?? 0)) === 1 ? 1 : 0);
+        update_option('fpb_order_email_heading', sanitize_text_field(wp_unslash($_POST['fpb_order_email_heading'] ?? '')));
+        update_option('fpb_order_email_message', wp_kses_post(wp_unslash($_POST['fpb_order_email_message'] ?? '')));
+        update_option('fpb_order_email_attachment_id', absint(wp_unslash($_POST['fpb_order_email_attachment_id'] ?? 0)));
         if (function_exists('snapbook_sanitize_checkout_mode')) {
             update_option('fpb_checkout_mode', snapbook_sanitize_checkout_mode(sanitize_key(wp_unslash($_POST['fpb_checkout_mode'] ?? 'direct'))));
         }
@@ -788,6 +796,8 @@ function snapbook_page_settings()
     $balance_reminder_hours = (int) get_option('fpb_balance_reminder_hours', 24);
     $balance_reminder_subject = get_option('fpb_balance_reminder_subject', __('Payment reminder for your booking', 'snapbook'));
     $balance_reminder_template = get_option('fpb_balance_reminder_template', "Hi {customer_name},\n\nThis is a reminder that {balance_amount} is pending for your booking on {session_date}.\n\nPay now: {pay_link}\n\nThank you.");
+    $order_email = snapbook_get_order_email_settings();
+    $order_email_file = snapbook_order_email_attachment_label($order_email['attachment_id']);
 
     snapbook_wrap_open('Settings', 'sb-settings', __('Configure checkout, payments, notifications, and form text.', 'snapbook'));
     echo '<form method="post" id="fpb-settings-form" class="fpb-settings-page">';
@@ -1056,6 +1066,40 @@ function snapbook_page_settings()
     echo '</tbody></table>';
     echo '</div>';
 
+    // ── Order confirmation email ─
+    echo '<div class="card fpb-settings-card">';
+    echo '<h2>' . esc_html__('Order Email', 'snapbook') . '</h2>';
+    echo '<p class="description">' . esc_html__('Add your own message and an attachment (for example a Terms of Service PDF) to the booking confirmation email the customer receives. This adds to the existing WooCommerce order email — customers still get one email, not two.', 'snapbook') . '</p>';
+    echo '<input type="hidden" name="fpb_order_email_enable" value="0">';
+    echo '<table class="form-table" role="presentation"><tbody>';
+
+    echo '<tr><th scope="row">' . esc_html__('Custom message', 'snapbook') . '</th><td>';
+    echo '<label><input type="checkbox" name="fpb_order_email_enable" value="1" ' . checked(1, (int) $order_email['enable'], false) . '> ' . esc_html__('Add my message to the order confirmation email', 'snapbook') . '</label>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row"><label for="fpb-order-email-heading">' . esc_html__('Message heading', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-order-email-heading" class="regular-text" type="text" name="fpb_order_email_heading" value="' . esc_attr($order_email['heading']) . '">';
+    echo '<p class="description">' . esc_html__('Leave blank to show the message without a heading.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row"><label for="fpb-order-email-message">' . esc_html__('Message', 'snapbook') . '</label></th><td>';
+    echo '<textarea id="fpb-order-email-message" class="large-text code" rows="8" name="fpb_order_email_message">' . esc_textarea($order_email['message']) . '</textarea>';
+    echo '<p class="description">' . esc_html__('Placeholders: {customer_name}, {first_name}, {package_name}, {session_type}, {session_date}, {order_id}, {total}, {site_name}', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row">' . esc_html__('Attached file', 'snapbook') . '</th><td>';
+    echo '<div class="fpb-media-field">';
+    echo '<input type="hidden" id="fpb-order-email-attachment-id" name="fpb_order_email_attachment_id" value="' . esc_attr($order_email['attachment_id']) . '">';
+    echo '<button type="button" class="button" id="fpb-order-email-attachment-pick">' . esc_html__('Choose or upload file', 'snapbook') . '</button> ';
+    echo '<button type="button" class="button-link" id="fpb-order-email-attachment-remove"' . ($order_email['attachment_id'] ? '' : ' style="display:none"') . '>' . esc_html__('Remove', 'snapbook') . '</button>';
+    echo '<p id="fpb-order-email-attachment-name" class="description"><strong>' . esc_html($order_email_file) . '</strong></p>';
+    echo '</div>';
+    echo '<p class="description">' . esc_html__('Attached to the booking confirmation email only (not to admin notifications or the balance reminder). A PDF such as your Terms of Service is typical.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '</tbody></table>';
+    echo '</div>';
+
     echo '<p class="submit">';
     echo '<button type="submit" class="button button-primary">' . esc_html__('Save All Settings', 'snapbook') . '</button>';
     echo '</p>';
@@ -1075,6 +1119,101 @@ function snapbookCopyShortcode(){
     });
 }
 </script>';
+
+    snapbook_wrap_close();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FRONTEND PAGE — cards shown beside the booking form
+   (How it works / Booking date calendar / 50% deposit). Each
+   card's text is editable here.
+═══════════════════════════════════════════════════════════════ */
+function snapbook_page_frontend()
+{
+    if (! current_user_can('manage_options')) return;
+
+    $defaults = function_exists('snapbook_frontend_sidebar_defaults') ? snapbook_frontend_sidebar_defaults() : [];
+
+    if (isset($_POST['snapbook_frontend_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['snapbook_frontend_nonce'])), 'snapbook_frontend')) {
+        // Checkbox toggles (absent = 0).
+        foreach (['fpb_fe_hiw_enable', 'fpb_fe_deposit_enable'] as $key) {
+            update_option($key, absint(wp_unslash($_POST[$key] ?? 0)) === 1 ? 1 : 0);
+        }
+        // Single-line text titles.
+        foreach (['fpb_fe_hiw_title', 'fpb_fe_date_title', 'fpb_fe_date_sub', 'fpb_fe_deposit_title'] as $key) {
+            update_option($key, sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
+        }
+        // Multi-line text areas.
+        foreach (['fpb_fe_hiw_steps', 'fpb_fe_deposit_text'] as $key) {
+            update_option($key, sanitize_textarea_field(wp_unslash($_POST[$key] ?? '')));
+        }
+        echo '<div class="notice notice-success is-dismissible inline"><p>' . esc_html__('Frontend settings saved.', 'snapbook') . '</p></div>';
+    }
+
+    $s = function_exists('snapbook_get_frontend_sidebar') ? snapbook_get_frontend_sidebar() : $defaults;
+
+    snapbook_wrap_open(__('Frontend', 'snapbook'), 'sb-frontend', __('Edit the cards shown beside the booking form.', 'snapbook'));
+    echo '<form method="post" id="fpb-frontend-form" class="fpb-settings-page">';
+    wp_nonce_field('snapbook_frontend', 'snapbook_frontend_nonce');
+
+    echo '<div class="notice notice-info inline"><p>';
+    echo esc_html__('The booking form is Package → Details → Payment. Customers pick their session date from the calendar card in the sidebar. The calendar always shows; the other cards can each be turned off below.', 'snapbook');
+    echo '</p></div>';
+
+    // ── How it works ─
+    echo '<div class="card fpb-settings-card">';
+    echo '<h2>' . esc_html__('How it works', 'snapbook') . '</h2>';
+    echo '<input type="hidden" name="fpb_fe_hiw_enable" value="0">';
+    echo '<table class="form-table" role="presentation"><tbody>';
+    echo '<tr><th scope="row">' . esc_html__('Show card', 'snapbook') . '</th><td>';
+    echo '<label><input type="checkbox" name="fpb_fe_hiw_enable" value="1" ' . checked(1, (int) $s['hiw_enable'], false) . '> ' . esc_html__('Show this card', 'snapbook') . '</label>';
+    echo '</td></tr>';
+    echo '<tr><th scope="row"><label for="fpb-fe-hiw-title">' . esc_html__('Title', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-fe-hiw-title" class="regular-text" type="text" name="fpb_fe_hiw_title" value="' . esc_attr($s['hiw_title']) . '">';
+    echo '</td></tr>';
+    echo '<tr><th scope="row"><label for="fpb-fe-hiw-steps">' . esc_html__('Steps', 'snapbook') . '</label></th><td>';
+    echo '<textarea id="fpb-fe-hiw-steps" class="large-text code" rows="6" name="fpb_fe_hiw_steps">' . esc_textarea($s['hiw_steps']) . '</textarea>';
+    echo '<p class="description">' . esc_html__('One step per line. They render as a numbered list.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+    echo '</tbody></table>';
+    echo '</div>';
+
+    // ── Booking date (calendar card) ─
+    echo '<div class="card fpb-settings-card">';
+    echo '<h2>' . esc_html__('Booking date', 'snapbook') . '</h2>';
+    echo '<p class="description">' . esc_html__('The calendar card where customers pick their session date. This card is always shown; only its heading text is editable.', 'snapbook') . '</p>';
+    echo '<table class="form-table" role="presentation"><tbody>';
+    echo '<tr><th scope="row"><label for="fpb-fe-date-title">' . esc_html__('Title', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-fe-date-title" class="regular-text" type="text" name="fpb_fe_date_title" value="' . esc_attr($s['date_title']) . '">';
+    echo '</td></tr>';
+    echo '<tr><th scope="row"><label for="fpb-fe-date-sub">' . esc_html__('Subtitle', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-fe-date-sub" class="regular-text" type="text" name="fpb_fe_date_sub" value="' . esc_attr($s['date_sub']) . '">';
+    echo '<p class="description">' . esc_html__('Shown under the title. Leave blank to hide it.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+    echo '</tbody></table>';
+    echo '</div>';
+
+    // ── 50% deposit to confirm ─
+    echo '<div class="card fpb-settings-card">';
+    echo '<h2>' . esc_html__('50% deposit to confirm', 'snapbook') . '</h2>';
+    echo '<input type="hidden" name="fpb_fe_deposit_enable" value="0">';
+    echo '<table class="form-table" role="presentation"><tbody>';
+    echo '<tr><th scope="row">' . esc_html__('Show card', 'snapbook') . '</th><td>';
+    echo '<label><input type="checkbox" name="fpb_fe_deposit_enable" value="1" ' . checked(1, (int) $s['deposit_enable'], false) . '> ' . esc_html__('Show this card', 'snapbook') . '</label>';
+    echo '</td></tr>';
+    echo '<tr><th scope="row"><label for="fpb-fe-deposit-title">' . esc_html__('Title', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-fe-deposit-title" class="regular-text" type="text" name="fpb_fe_deposit_title" value="' . esc_attr($s['deposit_title']) . '">';
+    echo '</td></tr>';
+    echo '<tr><th scope="row"><label for="fpb-fe-deposit-text">' . esc_html__('Text', 'snapbook') . '</label></th><td>';
+    echo '<textarea id="fpb-fe-deposit-text" class="large-text" rows="4" name="fpb_fe_deposit_text">' . esc_textarea($s['deposit_text']) . '</textarea>';
+    echo '</td></tr>';
+    echo '</tbody></table>';
+    echo '</div>';
+
+    echo '<p class="submit">';
+    echo '<button type="submit" class="button button-primary">' . esc_html__('Save Frontend Settings', 'snapbook') . '</button>';
+    echo '</p>';
+    echo '</form>';
 
     snapbook_wrap_close();
 }
