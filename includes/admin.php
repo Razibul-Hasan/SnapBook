@@ -45,6 +45,16 @@ function snapbook_admin_assets($hook)
     wp_localize_script('snapbook-admin', 'snapbookAdmin', [
         'ajaxUrl' => admin_url('admin-ajax.php'),
         'nonce'   => wp_create_nonce('snapbook_admin_nonce'),
+        'i18n'    => [
+            // Same helper the PHP side renders with, so the "no file" wording
+            // cannot drift between the initial render and the Remove button.
+            'noFile'           => function_exists('snapbook_order_email_attachment_label')
+                ? snapbook_order_email_attachment_label(0)
+                : __('No file selected.', 'snapbook'),
+            'mediaUnavailable' => __('Media library unavailable.', 'snapbook'),
+            'pickTitle'        => __('Select or upload the order email attachment', 'snapbook'),
+            'pickButton'       => __('Use this file', 'snapbook'),
+        ],
     ]);
 }
 
@@ -1117,7 +1127,7 @@ function snapbook_page_settings()
     echo '<div class="fpb-media-field">';
     echo '<input type="hidden" id="fpb-order-email-attachment-id" name="fpb_order_email_attachment_id" value="' . esc_attr($order_email['attachment_id']) . '">';
     echo '<button type="button" class="button" id="fpb-order-email-attachment-pick">' . esc_html__('Choose or upload file', 'snapbook') . '</button> ';
-    echo '<button type="button" class="button-link" id="fpb-order-email-attachment-remove"' . ($order_email['attachment_id'] ? '' : ' style="display:none"') . '>' . esc_html__('Remove', 'snapbook') . '</button>';
+    echo '<button type="button" class="button-link button-link-delete" id="fpb-order-email-attachment-remove"' . ($order_email['attachment_id'] ? '' : ' style="display:none"') . '>' . esc_html__('Remove', 'snapbook') . '</button>';
     echo '<p id="fpb-order-email-attachment-name" class="description"><strong>' . esc_html($order_email_file) . '</strong></p>';
     echo '</div>';
     echo '<p class="description">' . esc_html__('Attached to the booking confirmation email only (not to admin notifications or the balance reminder). A PDF such as your Terms of Service is typical.', 'snapbook') . '</p>';

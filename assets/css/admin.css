@@ -19,7 +19,8 @@
   --sb-border-soft: #f0f0f1;
   --sb-radius: 10px;
   --sb-radius-sm: 6px;
-  --sb-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --sb-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.08);
   --sb-shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.18);
 
   /* legacy var still referenced by inline styles */
@@ -233,6 +234,10 @@
 .fpb-admin-wrap .button-link-delete,
 .fpb-btn-danger {
   color: #b32d2e !important;
+  padding: 10px 39px;
+  border: 1px solid red;
+  border-radius: 5px;
+  text-decoration: none;
 }
 
 .fpb-admin-wrap .button-link-delete:hover,

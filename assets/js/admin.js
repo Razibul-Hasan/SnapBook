@@ -5,6 +5,17 @@
   const adminData = window.snapbookAdmin || {};
   const ajaxUrl = adminData.ajaxUrl || "";
   const nonce = adminData.nonce || "";
+  // Translated from PHP; the fallbacks keep things readable if the
+  // localized data is ever missing.
+  const strings = Object.assign(
+    {
+      noFile: "No file selected.",
+      mediaUnavailable: "Media library unavailable.",
+      pickTitle: "Select or upload the order email attachment",
+      pickButton: "Use this file",
+    },
+    adminData.i18n || {},
+  );
 
   function post(action, data) {
     const fd = new FormData();
@@ -878,12 +889,7 @@
     const remove = document.getElementById("fpb-order-email-attachment-remove");
     const field = document.getElementById("fpb-order-email-attachment-id");
     const label = document.getElementById("fpb-order-email-attachment-name");
-    if (!pick || !field) return;
-    if (!window.wp || !window.wp.media) {
-      pick.disabled = true;
-      pick.title = "Media library unavailable.";
-      return;
-    }
+    if (!field) return;
 
     // Filenames are user data — build the node instead of using innerHTML.
     function setLabel(text) {
@@ -894,12 +900,30 @@
       label.appendChild(strong);
     }
 
+    // Bound before the media check below: clearing the attachment only resets
+    // a hidden field, so it must keep working even when the media library
+    // failed to load and picking a new file is impossible.
+    if (remove) {
+      remove.addEventListener("click", () => {
+        field.value = "0";
+        setLabel(strings.noFile);
+        remove.style.display = "none";
+      });
+    }
+
+    if (!pick) return;
+    if (!window.wp || !window.wp.media) {
+      pick.disabled = true;
+      pick.title = strings.mediaUnavailable;
+      return;
+    }
+
     let frame = null;
     pick.addEventListener("click", () => {
       if (!frame) {
         frame = wp.media({
-          title: "Select or upload the order email attachment",
-          button: { text: "Use this file" },
+          title: strings.pickTitle,
+          button: { text: strings.pickButton },
           multiple: false,
         });
         frame.on("select", () => {
@@ -911,14 +935,6 @@
       }
       frame.open();
     });
-
-    if (remove) {
-      remove.addEventListener("click", () => {
-        field.value = "0";
-        setLabel("No file selected.");
-        remove.style.display = "none";
-      });
-    }
   }
 
   function bindSettingsForm() {
