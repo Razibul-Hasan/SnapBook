@@ -1061,7 +1061,7 @@ function snapbook_page_settings()
     echo '</td></tr>';
     echo '<tr><th scope="row"><label for="fpb-balance-reminder-template">' . esc_html__('Reminder email template', 'snapbook') . '</label></th><td>';
     echo '<textarea id="fpb-balance-reminder-template" class="large-text code" rows="7" name="fpb_balance_reminder_template">' . esc_textarea($balance_reminder_template) . '</textarea>';
-    echo '<p class="description">' . esc_html__('Placeholders: {customer_name}, {balance_amount}, {session_date}, {pay_link}', 'snapbook') . '</p>';
+    echo '<p class="description">' . esc_html__('Placeholders: {customer_name}, {balance_amount}, {session_date}, {package_name}, {addons}, {pay_link}, {order_id}', 'snapbook') . '</p>';
     echo '</td></tr>';
     echo '</tbody></table>';
     echo '</div>';
@@ -1103,7 +1103,7 @@ function snapbook_page_settings()
         ]
     );
     echo '<p class="description"><strong>' . esc_html__('Placeholders', 'snapbook') . ':</strong> ';
-    echo '<code>{customer_name}</code> <code>{first_name}</code> <code>{package_name}</code> <code>{session_type}</code> <code>{session_date}</code> <code>{order_id}</code> <code>{total}</code> <code>{site_name}</code>';
+    echo '<code>{customer_name}</code> <code>{first_name}</code> <code>{package_name}</code> <code>{addons}</code> <code>{session_type}</code> <code>{session_date}</code> <code>{order_id}</code> <code>{total}</code> <code>{site_name}</code>';
     echo '</p>';
     echo '<p class="description">' . esc_html__('They are replaced with the real booking details when the email is sent.', 'snapbook') . '</p>';
     echo '</td></tr>';

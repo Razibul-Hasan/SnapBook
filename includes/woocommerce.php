@@ -871,6 +871,9 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
     if ($session_date === '') {
         $session_date = (string) $parent_order->get_meta('_fpb_billing_event_date', true);
     }
+    // Balance orders copy the package and date across but not the add-ons,
+    // so those come from the parent order's booking line item.
+    $addons = (string) snapbook_get_order_booking_meta($parent_order)['addons'];
 
     $pay_link = $due_order->get_checkout_payment_url();
     $message = strtr((string) $template, [
@@ -878,6 +881,7 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
         '{balance_amount}' => $balance_amount,
         '{session_date}' => $session_date ?: __('N/A', 'snapbook'),
         '{package_name}' => $package_name,
+        '{addons}' => $addons !== '' ? $addons : __('None', 'snapbook'),
         '{pay_link}' => $pay_link,
         '{order_id}' => '#' . (int) $parent_order->get_id(),
     ]);
@@ -890,6 +894,7 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
 
     $facts = snapbook_email_facts([
         ['label' => __('Package', 'snapbook'), 'value' => $package_name],
+        ['label' => __('Add-ons', 'snapbook'), 'value' => $addons],
         ['label' => __('Date', 'snapbook'), 'value' => $session_date, 'strong' => true],
         ['label' => __('Booking reference', 'snapbook'), 'value' => '#' . $parent_order->get_order_number()],
     ]);
@@ -1034,6 +1039,175 @@ function snapbook_display_addons_item_meta($html, $item, $args)
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   Deposit breakdown in the order totals table.
+
+   A 50% booking is stored as a WooCommerce order worth only the
+   deposit, so on its own the totals table reads "Total: <deposit>"
+   and the customer never sees what the session actually costs.
+   These rows spell it out: full booking price, what was paid now,
+   and what is still owed.
+
+   Hooking woocommerce_get_order_item_totals covers every surface
+   that renders order totals at once — SnapBook's own email template,
+   WooCommerce's default emails, the order-received page, My Account
+   and any invoice plugin that calls get_order_item_totals().
+═══════════════════════════════════════════════════════════════ */
+add_filter('woocommerce_get_order_item_totals', 'snapbook_order_totals_deposit_rows', 10, 2);
+function snapbook_order_totals_deposit_rows($total_rows, $order)
+{
+    if (! $order || ! is_a($order, 'WC_Order') || ! function_exists('wc_price')) {
+        return $total_rows;
+    }
+    if (! snapbook_is_booking_order($order)) {
+        return $total_rows;
+    }
+
+    $args    = ['currency' => $order->get_currency()];
+    $is_bal  = (int) $order->get_meta('_fpb_is_balance_order', true) === 1;
+    $is_paid = $order->is_paid();
+
+    if ($is_bal) {
+        // The balance invoice: show it as the second half of a booking.
+        $parent = wc_get_order((int) $order->get_meta('_fpb_parent_order_id', true));
+        if (! $parent) {
+            return $total_rows;
+        }
+        $figures = snapbook_get_booking_figures($parent);
+        if ($figures === null) {
+            return $total_rows;
+        }
+
+        $before = [
+            'snapbook_booking_total' => [
+                'label' => __('Booking total:', 'snapbook'),
+                'value' => wc_price($figures['total'], $args),
+            ],
+            'snapbook_deposit_paid'  => [
+                'label' => sprintf(
+                    /* translators: %s: deposit percentage, e.g. 50 */
+                    __('Deposit already paid (%s%%):', 'snapbook'),
+                    snapbook_format_pct($figures['pct'])
+                ),
+                'value' => wc_price($figures['deposit'], $args),
+            ],
+        ];
+        $relabel = $is_paid
+            ? __('Balance paid:', 'snapbook')
+            : __('Balance due now:', 'snapbook');
+
+        return snapbook_splice_total_rows($total_rows, $before, $relabel, [], $order);
+    }
+
+    $figures = snapbook_get_booking_figures($order);
+    if ($figures === null || $figures['balance'] <= 0.01) {
+        return $total_rows; // paid in full — WooCommerce's own total is correct
+    }
+
+    $before = [
+        'snapbook_booking_total' => [
+            'label' => __('Booking total:', 'snapbook'),
+            'value' => wc_price($figures['total'], $args),
+        ],
+    ];
+    $relabel = sprintf(
+        /* translators: %s: deposit percentage, e.g. 50 */
+        $is_paid ? __('Paid now (%s%% deposit):', 'snapbook') : __('Due now (%s%% deposit):', 'snapbook'),
+        snapbook_format_pct($figures['pct'])
+    );
+    $after = [
+        'snapbook_balance_due' => [
+            'label' => __('Remaining balance:', 'snapbook'),
+            'value' => wc_price($figures['balance'], $args),
+        ],
+    ];
+
+    return snapbook_splice_total_rows($total_rows, $before, $relabel, $after, $order);
+}
+
+/**
+ * Booking money figures from the order's booking line item.
+ * Returns null when the order carries no SnapBook pricing meta.
+ *
+ * @return array{total:float,deposit:float,balance:float,pct:float}|null
+ */
+function snapbook_get_booking_figures($order)
+{
+    if (! $order || ! is_a($order, 'WC_Order')) {
+        return null;
+    }
+
+    $product_id = (int) get_option('fpb_wc_product_id', 0);
+    foreach ($order->get_items() as $item) {
+        if ($product_id && (int) $item->get_product_id() !== $product_id) {
+            continue;
+        }
+        // _fpb_total is fee-inclusive: package + add-ons + any payment fee.
+        $total = (float) $item->get_meta('_fpb_total');
+        if ($total <= 0) {
+            return null;
+        }
+        $deposit = (float) $item->get_meta('_fpb_deposit');
+        $balance = (float) $item->get_meta('_fpb_balance_due');
+        if ($balance <= 0) {
+            $balance = max(0, round($total - $deposit, 2));
+        }
+        $pct = (float) $item->get_meta('_fpb_deposit_pct');
+
+        return [
+            'total'   => $total,
+            'deposit' => $deposit,
+            'balance' => $balance,
+            'pct'     => $pct > 0 ? $pct : 100,
+        ];
+    }
+
+    return null;
+}
+
+/** "50" rather than "50.00" for deposit percentages. */
+function snapbook_format_pct($pct)
+{
+    return rtrim(rtrim(number_format((float) $pct, 2, '.', ''), '0'), '.');
+}
+
+/**
+ * Rebuild a totals array with rows inserted around WooCommerce's own
+ * order_total row, which is relabelled to say what it actually covers.
+ * WooCommerce's subtotal row is dropped when it merely repeats the total,
+ * so the breakdown reads as one clean sequence.
+ */
+function snapbook_splice_total_rows($total_rows, $before, $relabel, $after, $order)
+{
+    $drop_subtotal = abs((float) $order->get_subtotal() - (float) $order->get_total()) < 0.01;
+
+    $out = [];
+    foreach ((array) $total_rows as $key => $row) {
+        if ($key === 'cart_subtotal' && $drop_subtotal) {
+            continue;
+        }
+        if ($key === 'order_total') {
+            foreach ($before as $bk => $brow) {
+                $out[$bk] = $brow;
+            }
+            $row['label'] = $relabel;
+            $out[$key]    = $row;
+            foreach ($after as $ak => $arow) {
+                $out[$ak] = $arow;
+            }
+            continue;
+        }
+        $out[$key] = $row;
+    }
+
+    // No order_total row (unusual) — append rather than lose the breakdown.
+    if (! isset($out['order_total'])) {
+        $out = array_merge($out, $before, $after);
+    }
+
+    return $out;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    Include the remaining-balance payment link in the customer's
    first booking email (order confirmation), not just later reminders.
 ═══════════════════════════════════════════════════════════════ */
@@ -1141,7 +1315,7 @@ function snapbook_order_confirmation_email_ids()
  */
 function snapbook_get_order_booking_meta($order)
 {
-    $out = ['session_type' => '', 'package_name' => '', 'session_date' => ''];
+    $out = ['session_type' => '', 'package_name' => '', 'session_date' => '', 'addons' => ''];
     if (! $order || ! is_a($order, 'WC_Order')) {
         return $out;
     }
@@ -1154,6 +1328,8 @@ function snapbook_get_order_booking_meta($order)
         $out['session_type'] = (string) $item->get_meta('_fpb_session_type');
         $out['package_name'] = (string) $item->get_meta('_fpb_package_name');
         $out['session_date'] = (string) $item->get_meta('_fpb_session_date');
+        // Comma-separated add-on names, as chosen on the booking form.
+        $out['addons']       = (string) $item->get_meta('_fpb_addons_label');
         break;
     }
 
@@ -1192,6 +1368,9 @@ function snapbook_order_email_placeholders($order)
         '{session_type}'  => $meta['session_type'],
         '{package_name}'  => $meta['package_name'],
         '{session_date}'  => $meta['session_date'] !== '' ? $meta['session_date'] : __('N/A', 'snapbook'),
+        // Reads as a sentence when the customer booked nothing extra, so a
+        // template like "Add-ons: {addons}" never trails off blank.
+        '{addons}'        => $meta['addons'] !== '' ? $meta['addons'] : __('None', 'snapbook'),
         '{order_id}'      => '#' . $order->get_order_number(),
         '{total}'         => $symbol . number_format((float) $order->get_total(), 2),
         '{site_name}'     => get_bloginfo('name'),

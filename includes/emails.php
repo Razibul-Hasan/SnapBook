@@ -435,6 +435,9 @@ function snapbook_email_booking_facts_html($order)
     $rows = [
         ['label' => __('Session', 'snapbook'), 'value' => $meta['session_type']],
         ['label' => __('Package', 'snapbook'), 'value' => $meta['package_name']],
+        // Empty values are dropped by snapbook_email_facts(), so a booking
+        // without extras simply shows no Add-ons row.
+        ['label' => __('Add-ons', 'snapbook'), 'value' => $meta['addons']],
         ['label' => __('Date', 'snapbook'), 'value' => $meta['session_date'], 'strong' => true],
         ['label' => __('Time', 'snapbook'), 'value' => $time],
         ['label' => __('Booking reference', 'snapbook'), 'value' => '#' . $order->get_order_number()],

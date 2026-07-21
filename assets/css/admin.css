@@ -621,6 +621,25 @@
   color: #b32d2e;
 }
 
+/* Success notes fade themselves out once read (see setMsg in admin.js).
+   Errors are left on screen until the next save attempt. */
+.fpb-form-msg,
+#fpb-settings-msg {
+  transition: opacity 0.35s ease;
+}
+
+.fpb-form-msg.fpb-msg-fade,
+#fpb-settings-msg.fpb-msg-fade {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fpb-form-msg,
+  #fpb-settings-msg {
+    transition: none;
+  }
+}
+
 .fpb-hint {
   color: var(--sb-sub);
   font-size: 13px;

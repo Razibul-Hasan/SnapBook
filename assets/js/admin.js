@@ -43,11 +43,34 @@
       .replace(/'/g, "&#39;");
   }
 
+  // Pending auto-dismiss timers, keyed by message element id.
+  const msgTimers = {};
+
   function setMsg(id, text, ok) {
     const el = document.getElementById(id);
     if (!el) return;
     el.textContent = text || "";
     el.className = "fpb-form-msg " + (ok ? "fpb-ok" : "fpb-err");
+
+    // Any previous countdown belongs to a message that is now gone.
+    if (msgTimers[id]) {
+      clearTimeout(msgTimers[id]);
+      delete msgTimers[id];
+    }
+    if (!text || !ok) return;
+
+    // A success note has done its job once it has been read, so it fades out
+    // on its own. Errors stay until the next attempt — they need acting on.
+    msgTimers[id] = setTimeout(function () {
+      delete msgTimers[id];
+      el.classList.add("fpb-msg-fade");
+      setTimeout(function () {
+        // Only clear if nothing new was shown in the meantime.
+        if (!el.classList.contains("fpb-msg-fade")) return;
+        el.textContent = "";
+        el.className = "fpb-form-msg";
+      }, 400);
+    }, 4000);
   }
 
   // Copy text to the clipboard, with a fallback for plain-HTTP admin where

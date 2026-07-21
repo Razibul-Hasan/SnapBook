@@ -24,6 +24,7 @@ $snapbook_meta = snapbook_get_order_booking_meta($order);
 $snapbook_facts = snapbook_email_plain_facts([
     ['label' => __('Session', 'snapbook'), 'value' => $snapbook_meta['session_type']],
     ['label' => __('Package', 'snapbook'), 'value' => $snapbook_meta['package_name']],
+    ['label' => __('Add-ons', 'snapbook'), 'value' => $snapbook_meta['addons']],
     ['label' => __('Date', 'snapbook'), 'value' => $snapbook_meta['session_date']],
     ['label' => __('Time', 'snapbook'), 'value' => (string) $order->get_meta('_fpb_billing_event_time', true)],
     ['label' => __('Booking reference', 'snapbook'), 'value' => '#' . $order->get_order_number()],
