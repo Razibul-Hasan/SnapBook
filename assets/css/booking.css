@@ -300,11 +300,7 @@
   animation: fpb-spin 0.7s linear infinite;
 }
 
-/* ── Step 1: date calendar ── */
-.fpb-wrap .fpb-datesec {
-  margin-top: 0.4rem;
-}
-
+/* ── Date calendar ── */
 .fpb-wrap .fpb-cal {
   max-width: 520px;
   margin: 0 auto;
@@ -1761,5 +1757,72 @@
 
   .fpb-wrap .fpb-main {
     order: 4; /* booking form last */
+  }
+}
+
+/* ── Loading skeletons ──
+   Placeholder shapes shown while booking data is in flight. They occupy the
+   same footprint as the real content so nothing shifts when it arrives.
+   Toggled from SnapBook → Frontend ("Loading placeholders"). */
+.fpb-wrap .fpb-skel {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    var(--fpb-border) 25%,
+    var(--fpb-off) 50%,
+    var(--fpb-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: fpb-shimmer 1.4s ease-in-out infinite;
+  border-radius: 5px;
+}
+
+@keyframes fpb-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Placeholders sit directly in .fpb-cal-grid / .fpb-pkg-cards and inherit
+   those grid tracks — no wrapper, or the grid would nest and collapse. */
+.fpb-wrap .fpb-skel-cell {
+  min-height: 40px;
+}
+
+.fpb-wrap .fpb-skel-card {
+  border: 1.5px solid var(--fpb-border);
+  border-radius: 10px;
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 148px;
+}
+
+.fpb-wrap .fpb-skel-line {
+  height: 12px;
+}
+
+.fpb-wrap .fpb-skel-w60 {
+  width: 60%;
+}
+
+.fpb-wrap .fpb-skel-w40 {
+  width: 40%;
+}
+
+.fpb-wrap .fpb-load-error {
+  color: #c0392b;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* Shimmer is decorative — hold it still for reduced-motion users. */
+@media (prefers-reduced-motion: reduce) {
+  .fpb-wrap .fpb-skel {
+    animation: none;
   }
 }

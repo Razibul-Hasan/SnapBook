@@ -35,17 +35,8 @@ add_action('wp_ajax_nopriv_snapbook_get_data', 'snapbook_ajax_get_data');
 function snapbook_ajax_get_data()
 {
     check_ajax_referer('snapbook_nonce', 'nonce');
-    global $wpdb;
-    $pfx = $wpdb->prefix . 'fpb_';
 
-    $sessions = $wpdb->get_results("SELECT id, name, emoji, slug FROM {$pfx}sessions WHERE active=1 ORDER BY sort_order, id"); // phpcs:ignore
-    $packages = $wpdb->get_results("SELECT id, session_id, name, slug, price, duration, description, featured FROM {$pfx}packages WHERE active=1 ORDER BY sort_order, id"); // phpcs:ignore
-    $addons   = $wpdb->get_results("SELECT id, name, price, emoji, description, package_id, package_ids FROM {$pfx}addons WHERE active=1 ORDER BY sort_order, id"); // phpcs:ignore
-
-    wp_send_json_success([
-        'sessions' => $sessions,
-        'packages' => $packages,
-        'addons'   => $addons,
+    wp_send_json_success(snapbook_get_catalog_data() + [
         'currency' => snapbook_get_currency_symbol(),
         'depositPct' => ((int) get_option('fpb_enable_partial_payment', 1) === 1 ? 50 : 100),
         'partialPaymentEnabled' => ((int) get_option('fpb_enable_partial_payment', 1) === 1),
@@ -374,7 +365,7 @@ function snapbook_admin_save_settings()
         wp_send_json_error(['message' => 'Permission denied.']);
     }
 
-    foreach (['fpb_step1_title', 'fpb_step1_sub', 'fpb_balance_reminder_subject', 'fpb_partial_option_label', 'fpb_whatsapp', 'fpb_success_title', 'fpb_success_msg', 'fpb_whatsapp_btn', 'fpb_confirm_title', 'fpb_confirm_msg', 'fpb_confirm_pending_title', 'fpb_confirm_pending_msg'] as $key) {
+    foreach (['fpb_balance_reminder_subject', 'fpb_partial_option_label', 'fpb_whatsapp', 'fpb_success_title', 'fpb_success_msg', 'fpb_whatsapp_btn', 'fpb_confirm_title', 'fpb_confirm_msg', 'fpb_confirm_pending_title', 'fpb_confirm_pending_msg'] as $key) {
         update_option($key, sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
     }
     update_option('fpb_admin_email', sanitize_email(wp_unslash($_POST['fpb_admin_email'] ?? '')) ?: get_option('admin_email'));

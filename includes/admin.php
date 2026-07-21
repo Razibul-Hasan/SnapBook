@@ -21,8 +21,8 @@ function snapbook_admin_menu()
     add_submenu_page('sb-bookings', __('Packages', 'snapbook'),        __('Packages', 'snapbook'),        'manage_options', 'sb-packages',       'snapbook_page_packages');
     add_submenu_page('sb-bookings', __('Add-ons', 'snapbook'),         __('Add-ons', 'snapbook'),         'manage_options', 'sb-addons',         'snapbook_page_addons');
     add_submenu_page('sb-bookings', __('Date Slots', 'snapbook'),      __('Date Slots', 'snapbook'),      'manage_options', 'sb-dates',          'snapbook_page_dates');
-    add_submenu_page('sb-bookings', __('Settings', 'snapbook'),        __('Settings', 'snapbook'),        'manage_options', 'sb-settings',       'snapbook_page_settings');
     add_submenu_page('sb-bookings', __('Frontend', 'snapbook'),        __('Frontend', 'snapbook'),        'manage_options', 'sb-frontend',       'snapbook_page_frontend');
+    add_submenu_page('sb-bookings', __('Settings', 'snapbook'),        __('Settings', 'snapbook'),        'manage_options', 'sb-settings',       'snapbook_page_settings');
 }
 
 /* ─── Admin assets ─────────────────────────────────────────── */
@@ -35,8 +35,12 @@ function snapbook_admin_assets($hook)
     if ($icon_lib !== '') {
         wp_enqueue_style('snapbook-icons', $icon_lib, [], SNAPBOOK_VER);
     }
-    // Media library — the Order Email attachment picker opens wp.media.
-    wp_enqueue_media();
+    // Media library — only the Settings screen opens wp.media (the Order
+    // Email attachment picker). It pulls in Backbone, Underscore and the
+    // media templates, so it must not load on every SnapBook page.
+    if (strpos($hook, 'sb-settings') !== false) {
+        wp_enqueue_media();
+    }
     wp_enqueue_script('snapbook-admin',    SNAPBOOK_URL . 'assets/js/admin.js',   [], SNAPBOOK_VER, true);
     wp_localize_script('snapbook-admin', 'snapbookAdmin', [
         'ajaxUrl' => admin_url('admin-ajax.php'),
@@ -113,8 +117,10 @@ function snapbook_wrap_open($title, $active_tab = '', $subtitle = '')
         'sb-packages' => ['label' => __('Packages', 'snapbook'),      'icon' => 'dashicons-archive'],
         'sb-addons'   => ['label' => __('Add-ons', 'snapbook'),       'icon' => 'dashicons-star-filled'],
         'sb-dates'    => ['label' => __('Date Slots', 'snapbook'),    'icon' => 'dashicons-calendar-alt'],
-        'sb-settings' => ['label' => __('Settings', 'snapbook'),      'icon' => 'dashicons-admin-generic'],
         'sb-frontend' => ['label' => __('Frontend', 'snapbook'),      'icon' => 'dashicons-layout'],
+        // Settings stays last — it is the configuration screen, not a
+        // day-to-day one, so it belongs at the end of the nav.
+        'sb-settings' => ['label' => __('Settings', 'snapbook'),      'icon' => 'dashicons-admin-generic'],
     ];
     echo '<div class="wrap fpb-admin-wrap">';
     echo '<div class="sb-topbar">';
@@ -743,7 +749,7 @@ function snapbook_page_settings()
     if (! current_user_can('manage_options')) return;
 
     if (isset($_POST['snapbook_settings_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['snapbook_settings_nonce'])), 'snapbook_settings')) {
-        foreach (['fpb_step1_title', 'fpb_step1_sub', 'fpb_balance_reminder_subject', 'fpb_partial_option_label', 'fpb_whatsapp', 'fpb_success_title', 'fpb_success_msg', 'fpb_whatsapp_btn', 'fpb_confirm_title', 'fpb_confirm_msg', 'fpb_confirm_pending_title', 'fpb_confirm_pending_msg'] as $key) {
+        foreach (['fpb_balance_reminder_subject', 'fpb_partial_option_label', 'fpb_whatsapp', 'fpb_success_title', 'fpb_success_msg', 'fpb_whatsapp_btn', 'fpb_confirm_title', 'fpb_confirm_msg', 'fpb_confirm_pending_title', 'fpb_confirm_pending_msg'] as $key) {
             update_option($key, sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
         }
         update_option('fpb_admin_email', sanitize_email(wp_unslash($_POST['fpb_admin_email'] ?? '')) ?: get_option('admin_email'));
@@ -778,8 +784,6 @@ function snapbook_page_settings()
         echo '<div class="notice notice-success is-dismissible inline"><p>Settings saved.</p></div>';
     }
 
-    $step1_title = get_option('fpb_step1_title', 'Choose Your Date');
-    $step1_sub = get_option('fpb_step1_sub', 'Select your preferred session date to begin your booking.');
     $admin_email = get_option('fpb_admin_email', get_option('admin_email'));
     $whatsapp = get_option('fpb_whatsapp', '');
     $success_title = get_option('fpb_success_title', 'Booking Requested!');
@@ -880,12 +884,6 @@ function snapbook_page_settings()
     echo '<h2>' . esc_html__('Frontend Text', 'snapbook') . '</h2>';
     echo '<p class="description">' . esc_html__('Manage the text shown on the booking form and its success screen.', 'snapbook') . '</p>';
     echo '<table class="form-table" role="presentation"><tbody>';
-    echo '<tr><th scope="row"><label for="fpb-step1-title">' . esc_html__('Step 1 heading', 'snapbook') . '</label></th><td>';
-    echo '<input id="fpb-step1-title" class="regular-text" type="text" name="fpb_step1_title" value="' . esc_attr($step1_title) . '" placeholder="Choose Your Date">';
-    echo '</td></tr>';
-    echo '<tr><th scope="row"><label for="fpb-step1-sub">' . esc_html__('Step 1 subtitle', 'snapbook') . '</label></th><td>';
-    echo '<input id="fpb-step1-sub" class="regular-text" type="text" name="fpb_step1_sub" value="' . esc_attr($step1_sub) . '" placeholder="Select your preferred session date to begin your booking.">';
-    echo '</td></tr>';
     echo '<tr><th scope="row"><label for="fpb-success-title">' . esc_html__('Success heading', 'snapbook') . '</label></th><td>';
     echo '<input id="fpb-success-title" class="regular-text" type="text" name="fpb_success_title" value="' . esc_attr($success_title) . '" placeholder="Booking Requested!">';
     echo '</td></tr>';
@@ -1164,7 +1162,7 @@ function snapbook_page_frontend()
 
     if (isset($_POST['snapbook_frontend_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['snapbook_frontend_nonce'])), 'snapbook_frontend')) {
         // Checkbox toggles (absent = 0).
-        foreach (['fpb_fe_hiw_enable', 'fpb_fe_deposit_enable'] as $key) {
+        foreach (['fpb_fe_hiw_enable', 'fpb_fe_deposit_enable', 'fpb_fe_loader_enable'] as $key) {
             update_option($key, absint(wp_unslash($_POST[$key] ?? 0)) === 1 ? 1 : 0);
         }
         // Single-line text titles.
@@ -1234,6 +1232,19 @@ function snapbook_page_frontend()
     echo '</td></tr>';
     echo '<tr><th scope="row"><label for="fpb-fe-deposit-text">' . esc_html__('Text', 'snapbook') . '</label></th><td>';
     echo '<textarea id="fpb-fe-deposit-text" class="large-text" rows="4" name="fpb_fe_deposit_text">' . esc_textarea($s['deposit_text']) . '</textarea>';
+    echo '</td></tr>';
+    echo '</tbody></table>';
+    echo '</div>';
+
+    // ── Loading placeholders ─
+    echo '<div class="card fpb-settings-card">';
+    echo '<h2>' . esc_html__('Loading placeholders', 'snapbook') . '</h2>';
+    echo '<p class="description">' . esc_html__('While availability is being fetched, the calendar and package areas can show animated placeholder shapes instead of empty space.', 'snapbook') . '</p>';
+    echo '<input type="hidden" name="fpb_fe_loader_enable" value="0">';
+    echo '<table class="form-table" role="presentation"><tbody>';
+    echo '<tr><th scope="row">' . esc_html__('Show placeholders', 'snapbook') . '</th><td>';
+    echo '<label><input type="checkbox" name="fpb_fe_loader_enable" value="1" ' . checked(1, (int) get_option('fpb_fe_loader_enable', 1), false) . '> ' . esc_html__('Show a loading skeleton until the data arrives', 'snapbook') . '</label>';
+    echo '<p class="description">' . esc_html__('Turn this off to leave the areas blank while loading.', 'snapbook') . '</p>';
     echo '</td></tr>';
     echo '</tbody></table>';
     echo '</div>';
