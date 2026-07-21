@@ -228,6 +228,8 @@ function snapbook_load()
     require_once SNAPBOOK_DIR . 'includes/admin.php';
     require_once SNAPBOOK_DIR . 'includes/ajax.php';
     require_once SNAPBOOK_DIR . 'includes/shortcode.php';
+    // Shared email design system — needed with or without WooCommerce.
+    require_once SNAPBOOK_DIR . 'includes/emails.php';
     if (class_exists('WooCommerce')) {
         require_once SNAPBOOK_DIR . 'includes/woocommerce.php';
     }

@@ -289,34 +289,74 @@ function snapbook_ajax_submit()
     }
 
     $admin_email = get_option('fpb_admin_email', get_option('admin_email'));
-    wp_mail(
+    $site_name   = get_bloginfo('name', 'display');
+    $first_name  = explode(' ', trim($name))[0];
+
+    /* ── Studio notification ── */
+    $admin_body  = snapbook_email_pill(__('New request', 'snapbook'), 'primary');
+    $admin_body .= snapbook_email_title(__('New booking request', 'snapbook'));
+    /* translators: %s: client name */
+    $admin_body .= snapbook_email_text(sprintf(__('%s just submitted the booking form. Their details are below.', 'snapbook'), $name !== '' ? $name : $email));
+    $admin_body .= snapbook_email_divider(20);
+    $admin_body .= snapbook_email_section_label(__('Session', 'snapbook'));
+    $admin_body .= snapbook_email_facts([
+        ['label' => __('Package', 'snapbook'), 'value' => $pkg],
+        ['label' => __('Date', 'snapbook'), 'value' => $date, 'strong' => true],
+        ['label' => __('Time', 'snapbook'), 'value' => $time],
+        ['label' => __('Location', 'snapbook'), 'value' => $location],
+        ['label' => __('Total', 'snapbook'), 'value' => $total, 'strong' => true],
+    ]);
+    $admin_body .= snapbook_email_divider(24);
+    $admin_body .= snapbook_email_section_label(__('Client', 'snapbook'));
+    $admin_body .= snapbook_email_facts([
+        ['label' => __('Name', 'snapbook'), 'value' => $name],
+        ['label' => __('Email', 'snapbook'), 'value' => $email],
+        ['label' => __('Phone', 'snapbook'), 'value' => $phone],
+        ['label' => __('Signer', 'snapbook'), 'value' => $signer],
+    ]);
+    if (trim($notes) !== '') {
+        $admin_body .= snapbook_email_divider(24);
+        $admin_body .= snapbook_email_section_label(__('Notes', 'snapbook'));
+        $admin_body .= snapbook_email_text(nl2br(esc_html($notes)), true);
+    }
+
+    snapbook_email_send(
         $admin_email,
         /* translators: %s: client name */
         sprintf(__('New Booking Request — %s', 'snapbook'), $name),
-        sprintf(
-            "New booking:\n\nName: %s\nEmail: %s\nPhone: %s\nPackage: %s\nTotal: %s\nDate: %s\nTime: %s\nLocation: %s\nSigner: %s\n\nNotes:\n%s",
-            esc_html($name),
-            esc_html($email),
-            esc_html($phone),
-            esc_html($pkg),
-            esc_html($total),
-            esc_html($date),
-            esc_html($time),
-            esc_html($location),
-            esc_html($signer),
-            esc_html($notes)
-        )
+        $admin_body,
+        [
+            'eyebrow'   => __('Booking request', 'snapbook'),
+            /* translators: 1: package name, 2: session date */
+            'preheader' => sprintf(__('%1$s — %2$s', 'snapbook'), $pkg, $date),
+            'headers'   => is_email($email) ? ['Reply-To: ' . $name . ' <' . $email . '>'] : [],
+        ]
     );
-    wp_mail(
+
+    /* ── Client acknowledgement ── */
+    $client_body  = snapbook_email_pill(__('Request received', 'snapbook'));
+    /* translators: %s: client first name */
+    $client_body .= snapbook_email_title(sprintf(__('Thank you, %s', 'snapbook'), $first_name !== '' ? $first_name : __('there', 'snapbook')));
+    $client_body .= snapbook_email_text(__('We have your booking request and will confirm it within 24 hours. Here is what you asked for:', 'snapbook'));
+    $client_body .= snapbook_email_facts([
+        ['label' => __('Package', 'snapbook'), 'value' => $pkg],
+        ['label' => __('Date', 'snapbook'), 'value' => $date, 'strong' => true],
+        ['label' => __('Time', 'snapbook'), 'value' => $time],
+        ['label' => __('Total', 'snapbook'), 'value' => $total, 'strong' => true],
+    ]);
+    $client_body .= snapbook_email_spacer(22);
+    $client_body .= snapbook_email_text(__('No payment is needed yet — simply reply to this email if anything needs changing.', 'snapbook'));
+
+    snapbook_email_send(
         $email,
-        __('Booking request received — SnapBook', 'snapbook'),
-        sprintf(
-            "Hi %s,\n\nThank you for your booking request. We will confirm within 24 hours.\n\nPackage: %s\nDate: %s\nTotal: %s\n\nFocus Photography Mauritius",
-            esc_html(explode(' ', $name)[0]),
-            esc_html($pkg),
-            esc_html($date),
-            esc_html($total)
-        )
+        /* translators: %s: site name */
+        sprintf(__('Booking request received — %s', 'snapbook'), $site_name),
+        $client_body,
+        [
+            'eyebrow'   => __('Booking request', 'snapbook'),
+            'preheader' => __('We will confirm your session within 24 hours.', 'snapbook'),
+            'headers'   => ['Reply-To: ' . $admin_email],
+        ]
     );
 
     wp_send_json_success([]);

@@ -858,10 +858,13 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
     }
 
     $subject = get_option('fpb_balance_reminder_subject', __('Payment reminder for your booking', 'snapbook'));
-    $template = get_option('fpb_balance_reminder_template', "Hi {customer_name},\n\nThis is a reminder that {balance_amount} is pending for your booking on {session_date}.\n\nPay now: {pay_link}\n\nThank you.");
+    $template = get_option('fpb_balance_reminder_template', snapbook_balance_reminder_default_template());
 
     $currency = $parent_order->get_currency();
     $symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol($currency) : snapbook_get_currency_symbol();
+    // WooCommerce returns the symbol as an HTML entity (e.g. &#2547;); decode
+    // it so escaping the amount doesn't leave the entity visible as text.
+    $symbol = html_entity_decode((string) $symbol, ENT_QUOTES, 'UTF-8');
     $balance_amount = $symbol . number_format((float) $due_order->get_total(), 2);
     $package_name = (string) $due_order->get_meta('_fpb_package_name', true);
     $session_date = (string) $due_order->get_meta('_fpb_session_date', true);
@@ -879,8 +882,36 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
         '{order_id}' => '#' . (int) $parent_order->get_id(),
     ]);
 
-    $headers = ['Content-Type: text/html; charset=UTF-8'];
-    $sent = wp_mail($to_email, sanitize_text_field($subject), nl2br(wp_kses_post($message)), $headers);
+    // Branded shell: the admin's wording, then the booking facts and a single
+    // obvious way to pay.
+    $content  = snapbook_email_pill(__('Payment due', 'snapbook'), 'primary');
+    $content .= snapbook_email_title(__('Your booking balance', 'snapbook'));
+    $content .= snapbook_email_text(nl2br(wp_kses_post($message)), true);
+
+    $facts = snapbook_email_facts([
+        ['label' => __('Package', 'snapbook'), 'value' => $package_name],
+        ['label' => __('Date', 'snapbook'), 'value' => $session_date, 'strong' => true],
+        ['label' => __('Booking reference', 'snapbook'), 'value' => '#' . $parent_order->get_order_number()],
+    ]);
+    if ($facts !== '') {
+        $content .= snapbook_email_divider(22) . snapbook_email_section_label(__('Your session', 'snapbook')) . $facts;
+    }
+
+    $content .= '<div style="margin:26px 0 0;">' . snapbook_email_callout([
+        'title'        => __('Remaining balance', 'snapbook'),
+        'amount'       => $balance_amount,
+        'text'         => __('Settle it any time using the button below — it opens a secure payment page.', 'snapbook'),
+        'button_url'   => $pay_link,
+        'button_label' => __('Pay Remaining Balance', 'snapbook'),
+        'note'         => esc_html__('Or copy and paste this link into your browser:', 'snapbook')
+            . '<br><a href="' . esc_url($pay_link) . '" style="color:' . esc_attr(snapbook_email_palette()['accent_dk']) . ';">' . esc_html($pay_link) . '</a>',
+    ]) . '</div>';
+
+    $sent = snapbook_email_send($to_email, $subject, $content, [
+        'eyebrow'   => __('Payment reminder', 'snapbook'),
+        /* translators: %s: outstanding balance */
+        'preheader' => sprintf(__('%s is still due for your booking.', 'snapbook'), $balance_amount),
+    ]);
     if ($sent) {
         $parent_order->update_meta_data('_fpb_last_balance_reminder_sent', current_time('mysql'));
         $parent_order->update_meta_data('_fpb_last_balance_reminder_mode', $manual ? 'manual' : 'automatic');
@@ -1035,6 +1066,9 @@ function snapbook_email_append_balance_link($order, $sent_to_admin = false, $pla
     $pay_url = $balance_order->get_checkout_payment_url();
     $currency = $order->get_currency();
     $symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol($currency) : snapbook_get_currency_symbol();
+    // Decode the entity form (e.g. &#2547;) so esc_html() below doesn't
+    // double-escape it into visible markup.
+    $symbol = html_entity_decode((string) $symbol, ENT_QUOTES, 'UTF-8');
     $balance_amount = $symbol . number_format((float) $balance_order->get_total(), 2);
 
     $session_date = (string) $balance_order->get_meta('_fpb_session_date', true);
@@ -1062,12 +1096,22 @@ function snapbook_email_append_balance_link($order, $sent_to_admin = false, $pla
     }
 
     // Self-contained inline styles — email clients don't load the plugin CSS.
-    echo '<div style="margin:24px 0;padding:20px 24px;border:2px solid #3d6b78;border-radius:8px;background:#eef4f6;">';
-    echo '<h2 style="margin:0 0 8px;font-size:18px;line-height:1.3;color:#2e5562;">' . esc_html__('Pay your remaining balance', 'snapbook') . '</h2>';
-    echo '<p style="margin:0 0 4px;font-size:14px;line-height:1.5;color:#1d2327;">' . esc_html($intro) . '</p>';
-    echo '<p style="margin:8px 0 16px;font-size:24px;font-weight:700;color:#2e5562;">' . esc_html($balance_amount) . '</p>';
-    echo '<a href="' . esc_url($pay_url) . '" style="display:inline-block;padding:12px 24px;background:#3d6b78;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">' . esc_html__('Pay Remaining Balance', 'snapbook') . '</a>';
-    echo '<p style="margin:16px 0 0;font-size:12px;line-height:1.5;color:#50575e;word-break:break-all;">' . esc_html__('Or copy and paste this link into your browser:', 'snapbook') . '<br><a href="' . esc_url($pay_url) . '" style="color:#3d6b78;">' . esc_html($pay_url) . '</a></p>';
+    $palette = snapbook_email_palette();
+    $note    = esc_html__('Or copy and paste this link into your browser:', 'snapbook')
+        . '<br><a href="' . esc_url($pay_url) . '" style="color:' . esc_attr($palette['accent_dk']) . ';">' . esc_html($pay_url) . '</a>';
+
+    // Spacing lives here rather than in the component, so the callout sits
+    // correctly whether it follows SnapBook's order table or WooCommerce's.
+    echo '<div style="margin:26px 0 0;">';
+    // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- The component escapes its own data.
+    echo snapbook_email_callout([
+        'title'        => __('Pay your remaining balance', 'snapbook'),
+        'text'         => $intro,
+        'amount'       => $balance_amount,
+        'button_url'   => $pay_url,
+        'button_label' => __('Pay Remaining Balance', 'snapbook'),
+        'note'         => $note,
+    ]);
     echo '</div>';
 }
 

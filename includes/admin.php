@@ -797,7 +797,7 @@ function snapbook_page_settings()
     $enable_balance_reminders = (int) get_option('fpb_enable_balance_reminders', 0);
     $balance_reminder_hours = (int) get_option('fpb_balance_reminder_hours', 24);
     $balance_reminder_subject = get_option('fpb_balance_reminder_subject', __('Payment reminder for your booking', 'snapbook'));
-    $balance_reminder_template = get_option('fpb_balance_reminder_template', "Hi {customer_name},\n\nThis is a reminder that {balance_amount} is pending for your booking on {session_date}.\n\nPay now: {pay_link}\n\nThank you.");
+    $balance_reminder_template = get_option('fpb_balance_reminder_template', snapbook_balance_reminder_default_template());
     $order_email = snapbook_get_order_email_settings();
     $order_email_file = snapbook_order_email_attachment_label($order_email['attachment_id']);
 
