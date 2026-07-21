@@ -904,6 +904,9 @@
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
+      // Sync TinyMCE (the Order Email editor) back to its textarea so
+      // FormData picks up the rich-text content.
+      if (window.tinymce) window.tinymce.triggerSave();
       const data = formToObject(form);
 
       post("snapbook_admin_save_settings", data)

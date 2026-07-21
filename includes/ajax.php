@@ -357,6 +357,8 @@ function snapbook_admin_save_settings()
     update_option('fpb_balance_reminder_template', wp_kses_post(wp_unslash($_POST['fpb_balance_reminder_template'] ?? '')));
 
     update_option('fpb_order_email_enable', absint(wp_unslash($_POST['fpb_order_email_enable'] ?? 0)) === 1 ? 1 : 0);
+    update_option('fpb_order_email_order_table', absint(wp_unslash($_POST['fpb_order_email_order_table'] ?? 0)) === 1 ? 1 : 0);
+    update_option('fpb_order_email_subject', sanitize_text_field(wp_unslash($_POST['fpb_order_email_subject'] ?? '')));
     update_option('fpb_order_email_heading', sanitize_text_field(wp_unslash($_POST['fpb_order_email_heading'] ?? '')));
     update_option('fpb_order_email_message', wp_kses_post(wp_unslash($_POST['fpb_order_email_message'] ?? '')));
     update_option('fpb_order_email_attachment_id', absint(wp_unslash($_POST['fpb_order_email_attachment_id'] ?? 0)));

@@ -759,6 +759,8 @@ function snapbook_page_settings()
         update_option('fpb_balance_reminder_hours', max(1, absint(wp_unslash($_POST['fpb_balance_reminder_hours'] ?? 24))));
         update_option('fpb_balance_reminder_template', wp_kses_post(wp_unslash($_POST['fpb_balance_reminder_template'] ?? '')));
         update_option('fpb_order_email_enable', absint(wp_unslash($_POST['fpb_order_email_enable'] ?? 0)) === 1 ? 1 : 0);
+        update_option('fpb_order_email_order_table', absint(wp_unslash($_POST['fpb_order_email_order_table'] ?? 0)) === 1 ? 1 : 0);
+        update_option('fpb_order_email_subject', sanitize_text_field(wp_unslash($_POST['fpb_order_email_subject'] ?? '')));
         update_option('fpb_order_email_heading', sanitize_text_field(wp_unslash($_POST['fpb_order_email_heading'] ?? '')));
         update_option('fpb_order_email_message', wp_kses_post(wp_unslash($_POST['fpb_order_email_message'] ?? '')));
         update_option('fpb_order_email_attachment_id', absint(wp_unslash($_POST['fpb_order_email_attachment_id'] ?? 0)));
@@ -1069,22 +1071,48 @@ function snapbook_page_settings()
     // ── Order confirmation email ─
     echo '<div class="card fpb-settings-card">';
     echo '<h2>' . esc_html__('Order Email', 'snapbook') . '</h2>';
-    echo '<p class="description">' . esc_html__('Add your own message and an attachment (for example a Terms of Service PDF) to the booking confirmation email the customer receives. This adds to the existing WooCommerce order email — customers still get one email, not two.', 'snapbook') . '</p>';
+    echo '<p class="description">' . esc_html__('Write the booking confirmation email your customer receives. When the custom email is turned on it replaces WooCommerce\'s default wording entirely — the customer gets your email only, not both.', 'snapbook') . '</p>';
     echo '<input type="hidden" name="fpb_order_email_enable" value="0">';
+    echo '<input type="hidden" name="fpb_order_email_order_table" value="0">';
     echo '<table class="form-table" role="presentation"><tbody>';
 
-    echo '<tr><th scope="row">' . esc_html__('Custom message', 'snapbook') . '</th><td>';
-    echo '<label><input type="checkbox" name="fpb_order_email_enable" value="1" ' . checked(1, (int) $order_email['enable'], false) . '> ' . esc_html__('Add my message to the order confirmation email', 'snapbook') . '</label>';
+    echo '<tr><th scope="row">' . esc_html__('Custom email', 'snapbook') . '</th><td>';
+    echo '<label><input type="checkbox" name="fpb_order_email_enable" value="1" ' . checked(1, (int) $order_email['enable'], false) . '> ' . esc_html__('Use my own content for the booking confirmation email', 'snapbook') . '</label>';
+    echo '<p class="description">' . esc_html__('Applies to the customer confirmation email only. Admin notifications and the balance reminder are untouched.', 'snapbook') . '</p>';
     echo '</td></tr>';
 
-    echo '<tr><th scope="row"><label for="fpb-order-email-heading">' . esc_html__('Message heading', 'snapbook') . '</label></th><td>';
+    echo '<tr><th scope="row"><label for="fpb-order-email-subject">' . esc_html__('Subject', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-order-email-subject" class="large-text" type="text" name="fpb_order_email_subject" value="' . esc_attr($order_email['subject']) . '">';
+    echo '<p class="description">' . esc_html__('Leave blank to keep the WooCommerce subject.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row"><label for="fpb-order-email-heading">' . esc_html__('Heading', 'snapbook') . '</label></th><td>';
     echo '<input id="fpb-order-email-heading" class="regular-text" type="text" name="fpb_order_email_heading" value="' . esc_attr($order_email['heading']) . '">';
-    echo '<p class="description">' . esc_html__('Leave blank to show the message without a heading.', 'snapbook') . '</p>';
+    echo '<p class="description">' . esc_html__('The large title at the top of the email. Leave blank to keep the WooCommerce heading.', 'snapbook') . '</p>';
     echo '</td></tr>';
 
-    echo '<tr><th scope="row"><label for="fpb-order-email-message">' . esc_html__('Message', 'snapbook') . '</label></th><td>';
-    echo '<textarea id="fpb-order-email-message" class="large-text code" rows="8" name="fpb_order_email_message">' . esc_textarea($order_email['message']) . '</textarea>';
-    echo '<p class="description">' . esc_html__('Placeholders: {customer_name}, {first_name}, {package_name}, {session_type}, {session_date}, {order_id}, {total}, {site_name}', 'snapbook') . '</p>';
+    echo '<tr><th scope="row"><label for="fpb_order_email_message">' . esc_html__('Email content', 'snapbook') . '</label></th><td>';
+    // Editor ID uses underscores — wp_editor/TinyMCE misbehave with hyphens.
+    wp_editor(
+        $order_email['message'],
+        'fpb_order_email_message',
+        [
+            'textarea_name' => 'fpb_order_email_message',
+            'textarea_rows' => 12,
+            'media_buttons' => false,
+            'teeny'         => true,
+            'quicktags'     => true,
+        ]
+    );
+    echo '<p class="description"><strong>' . esc_html__('Placeholders', 'snapbook') . ':</strong> ';
+    echo '<code>{customer_name}</code> <code>{first_name}</code> <code>{package_name}</code> <code>{session_type}</code> <code>{session_date}</code> <code>{order_id}</code> <code>{total}</code> <code>{site_name}</code>';
+    echo '</p>';
+    echo '<p class="description">' . esc_html__('They are replaced with the real booking details when the email is sent.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row">' . esc_html__('Order details table', 'snapbook') . '</th><td>';
+    echo '<label><input type="checkbox" name="fpb_order_email_order_table" value="1" ' . checked(1, (int) $order_email['order_table'], false) . '> ' . esc_html__('Include the booking summary table (package, add-ons, totals, customer details)', 'snapbook') . '</label>';
+    echo '<p class="description">' . esc_html__('Untick for a fully custom email. Note: the "pay remaining balance" button is shown either way.', 'snapbook') . '</p>';
     echo '</td></tr>';
 
     echo '<tr><th scope="row">' . esc_html__('Attached file', 'snapbook') . '</th><td>';

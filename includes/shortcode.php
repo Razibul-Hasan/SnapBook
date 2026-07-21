@@ -653,8 +653,10 @@ function snapbook_order_email_defaults()
 {
     return [
         'enable'        => 0,
+        'subject'       => __('Your booking is confirmed — {site_name}', 'snapbook'),
         'heading'       => __('Your booking', 'snapbook'),
-        'message'       => __("Hi {first_name},\n\nThank you for booking {package_name} with us on {session_date}.\n\nOur terms are attached to this email. If you have any questions, just reply and we'll be happy to help.\n\n{site_name}", 'snapbook'),
+        'message'       => __("<p>Hi {first_name},</p>\n<p>Thank you for booking <strong>{package_name}</strong> with us on <strong>{session_date}</strong>.</p>\n<p>Our terms are attached to this email. If you have any questions, just reply and we'll be happy to help.</p>\n<p>{site_name}</p>", 'snapbook'),
+        'order_table'   => 1,
         'attachment_id' => 0,
     ];
 }
@@ -664,8 +666,10 @@ function snapbook_get_order_email_settings()
     $d = snapbook_order_email_defaults();
     return [
         'enable'        => (int) get_option('fpb_order_email_enable', $d['enable']),
+        'subject'       => (string) get_option('fpb_order_email_subject', $d['subject']),
         'heading'       => (string) get_option('fpb_order_email_heading', $d['heading']),
         'message'       => (string) get_option('fpb_order_email_message', $d['message']),
+        'order_table'   => (int) get_option('fpb_order_email_order_table', $d['order_table']),
         'attachment_id' => (int) get_option('fpb_order_email_attachment_id', $d['attachment_id']),
     ];
 }

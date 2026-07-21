@@ -1154,49 +1154,118 @@ function snapbook_order_email_placeholders($order)
     ];
 }
 
-add_action('woocommerce_email_after_order_table', 'snapbook_email_append_order_message', 12, 4);
-function snapbook_email_append_order_message($order, $sent_to_admin = false, $plain_text = false, $email = null)
+/**
+ * Whether the admin's custom email replaces WooCommerce's default body for
+ * this order. Confirmation emails for real bookings only — never the
+ * balance invoice, and never admin notifications.
+ */
+function snapbook_order_email_applies($order)
 {
-    if ($sent_to_admin || ! $order || ! is_a($order, 'WC_Order')) {
-        return;
+    if (! $order || ! is_a($order, 'WC_Order')) {
+        return false;
     }
     if (! function_exists('snapbook_get_order_email_settings')) {
-        return;
+        return false;
     }
     $settings = snapbook_get_order_email_settings();
-    if ((int) $settings['enable'] !== 1 || trim($settings['message']) === '') {
-        return;
+    if ((int) $settings['enable'] !== 1 || trim(wp_strip_all_tags($settings['message'])) === '') {
+        return false;
     }
-    // Confirmation emails only — never the balance invoice.
-    if (! $email || ! in_array($email->id, snapbook_order_confirmation_email_ids(), true)) {
-        return;
+    if ((int) $order->get_meta('_fpb_is_balance_order', true) === 1) {
+        return false;
     }
-    if ((int) $order->get_meta('_fpb_is_balance_order', true) === 1 || ! snapbook_is_booking_order($order)) {
-        return;
-    }
+    return (bool) snapbook_is_booking_order($order);
+}
 
-    $tokens  = snapbook_order_email_placeholders($order);
-    $heading = trim(strtr($settings['heading'], $tokens));
-    $message = strtr($settings['message'], $tokens);
+/**
+ * The admin's message with {placeholders} resolved, as email-ready HTML.
+ * Content is stored through wp_kses_post, so it is safe rich text; wpautop
+ * only runs when the editor left plain line breaks behind.
+ */
+function snapbook_order_email_body_html($order)
+{
+    $settings = snapbook_get_order_email_settings();
+    $message  = strtr((string) $settings['message'], snapbook_order_email_placeholders($order));
+    if (strpos($message, '<p') === false && strpos($message, '<div') === false) {
+        $message = wpautop($message);
+    }
+    return wp_kses_post($message);
+}
 
-    if ($plain_text) {
-        // Plain-text email: strip markup and decode entities. Escaping here
-        // would corrupt the text (an "&" would arrive as "&amp;").
-        echo "\n----------------------------------------\n\n";
-        if ($heading !== '') {
-            echo html_entity_decode(wp_strip_all_tags($heading), ENT_QUOTES, 'UTF-8') . "\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+/**
+ * Plain-text counterpart. Not escaped: this is not an HTML context, and
+ * escaping would turn "&" into "&amp;" in the customer's message.
+ */
+function snapbook_order_email_body_plain($order)
+{
+    $html = snapbook_order_email_body_html($order);
+    $text = wp_strip_all_tags(str_replace(['</p>', '<br>', '<br/>', '<br />'], "\n", $html));
+    return trim(html_entity_decode($text, ENT_QUOTES, 'UTF-8'));
+}
+
+/**
+ * Swap WooCommerce's customer confirmation templates for SnapBook's, so the
+ * email contains only the admin's content instead of it plus WooCommerce's
+ * hardcoded "we've received your order" copy.
+ */
+add_filter('wc_get_template', 'snapbook_override_customer_email_template', 10, 5);
+function snapbook_override_customer_email_template($template, $template_name, $args = [], $template_path = '', $default_path = '')
+{
+    static $map = null;
+    if ($map === null) {
+        $map = [];
+        foreach (snapbook_order_confirmation_email_ids() as $email_id) {
+            $file = str_replace('_', '-', $email_id) . '.php';
+            $map['emails/' . $file]       = 'emails/snapbook-order.php';
+            $map['emails/plain/' . $file] = 'emails/plain/snapbook-order.php';
         }
-        echo html_entity_decode(wp_strip_all_tags($message), ENT_QUOTES, 'UTF-8') . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-        return;
     }
 
-    // Self-contained inline styles — email clients don't load the plugin CSS.
-    echo '<div style="margin:24px 0;padding:20px 24px;border:1px solid #e8e3dc;border-radius:8px;background:#faf8f5;">';
-    if ($heading !== '') {
-        echo '<h2 style="margin:0 0 8px;font-size:18px;line-height:1.3;color:#1d2327;">' . esc_html($heading) . '</h2>';
+    if (! isset($map[$template_name]) || empty($args['order'])) {
+        return $template;
     }
-    echo '<div style="font-size:14px;line-height:1.6;color:#1d2327;">' . wp_kses_post(wpautop($message)) . '</div>';
-    echo '</div>';
+    if (! snapbook_order_email_applies($args['order'])) {
+        return $template;
+    }
+
+    $custom = SNAPBOOK_DIR . 'templates/' . $map[$template_name];
+    return file_exists($custom) ? $custom : $template;
+}
+
+/**
+ * Let the admin own the subject line and heading of the same emails.
+ */
+add_action('init', 'snapbook_register_order_email_subject_filters');
+function snapbook_register_order_email_subject_filters()
+{
+    foreach (snapbook_order_confirmation_email_ids() as $email_id) {
+        add_filter('woocommerce_email_subject_' . $email_id, 'snapbook_filter_order_email_subject', 10, 3);
+        add_filter('woocommerce_email_heading_' . $email_id, 'snapbook_filter_order_email_heading', 10, 3);
+    }
+}
+
+function snapbook_filter_order_email_subject($subject, $order = null, $email = null)
+{
+    if (! snapbook_order_email_applies($order)) {
+        return $subject;
+    }
+    $custom = trim((string) snapbook_get_order_email_settings()['subject']);
+    if ($custom === '') {
+        return $subject;
+    }
+    return strtr($custom, snapbook_order_email_placeholders($order));
+}
+
+function snapbook_filter_order_email_heading($heading, $order = null, $email = null)
+{
+    if (! snapbook_order_email_applies($order)) {
+        return $heading;
+    }
+    $custom = trim((string) snapbook_get_order_email_settings()['heading']);
+    if ($custom === '') {
+        return $heading;
+    }
+    return strtr($custom, snapbook_order_email_placeholders($order));
 }
 
 add_filter('woocommerce_email_attachments', 'snapbook_email_attach_order_file', 10, 4);
