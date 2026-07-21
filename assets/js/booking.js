@@ -135,8 +135,7 @@
         resolvePreselectPackage();
         renderSessionTabs();
         initCalendar();
-        updateStep1NextState();
-        updateStep2NextState();
+        updatePkgNextState();
       })
       .catch(() => {
         const t = document.getElementById("fpb-typeTabs");
@@ -185,7 +184,7 @@
       showAddons(false);
       renderPackages();
       updateStep2Price();
-      updateStep2NextState();
+      updatePkgNextState();
     }
 
     wrap.querySelectorAll(".fpb-stype-btn").forEach((btn) => {
@@ -259,10 +258,10 @@
         selectedPkgId = parseInt(card.dataset.id, 10);
         selectedPkg =
           pkgs.find((p) => parseInt(p.id, 10) === selectedPkgId) || null;
-        clearErr("fpb-s2err");
+        clearErr("fpb-s1err");
         renderAddons();
         updateStep2Price();
-        updateStep2NextState();
+        updatePkgNextState();
       }
       card.addEventListener("click", selectCard);
       card.addEventListener("keydown", (e) => {
@@ -766,7 +765,8 @@
           setTxt("fpb-selDate", "Selected: " + formatDateHuman(chosenDate));
           clearErr("fpb-s1err");
           renderPartialPaymentOption();
-          updateStep1NextState();
+          updateStep2Price();
+          updatePkgNextState();
         }
 
         cell.addEventListener("click", chooseDate);
@@ -779,16 +779,11 @@
       });
   }
 
-  function updateStep1NextState() {
+  // The Package step's Continue button. The session date is chosen in the
+  // sidebar calendar, so it's validated on click (s1Next) rather than
+  // gating the button — a package selection is enough to enable it.
+  function updatePkgNextState() {
     const btn = document.getElementById("fpb-s1NextBtn");
-    if (!btn) return;
-    const ready = !!chosenDate;
-    btn.disabled = !ready;
-    btn.title = ready ? "" : "Select a date to continue";
-  }
-
-  function updateStep2NextState() {
-    const btn = document.getElementById("fpb-s2NextBtn");
     if (!btn) return;
     const ready = !!selectedPkg;
     btn.disabled = !ready;
@@ -815,14 +810,14 @@
       const value = String(el.value || "").trim();
 
       if (required && value === "") {
-        showErr("fpb-s3err", label + " is required.");
+        showErr("fpb-s2err", label + " is required.");
         el.focus();
         return false;
       }
 
       if (key === "email" && value !== "") {
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-          showErr("fpb-s3err", "Please enter a valid email.");
+          showErr("fpb-s2err", "Please enter a valid email.");
           el.focus();
           return false;
         }
@@ -831,7 +826,7 @@
       if (key === "phone" && value !== "") {
         if (!/^[+]?[0-9 \-()]{7,20}$/.test(value)) {
           showErr(
-            "fpb-s3err",
+            "fpb-s2err",
             "Please enter a valid phone number (digits, +, spaces, dashes only).",
           );
           el.focus();
@@ -841,13 +836,13 @@
 
       if (key === "participants" && (required || value !== "")) {
         if (parseInt(value, 10) < 1 || isNaN(parseInt(value, 10))) {
-          showErr("fpb-s3err", label + " must be at least 1.");
+          showErr("fpb-s2err", label + " must be at least 1.");
           el.focus();
           return false;
         }
       }
     }
-    clearErr("fpb-s3err");
+    clearErr("fpb-s2err");
     return true;
   }
 
@@ -862,7 +857,7 @@
     document
       .querySelectorAll(".fpb-step")
       .forEach((el) => el.classList.remove("fpb-act"));
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 3; i++) {
       const sp = document.getElementById("fpb-sp" + i);
       if (!sp) continue;
       sp.classList.remove("fpb-active", "fpb-done");
@@ -878,7 +873,7 @@
 
   // Completed steps in the indicator are clickable to go back.
   function initStepIndicator() {
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 3; i++) {
       const sp = document.getElementById("fpb-sp" + i);
       if (!sp) continue;
       sp.addEventListener("click", () => {
@@ -888,34 +883,32 @@
     }
   }
 
+  // Step 1 — Package. The date comes from the sidebar calendar, so both a
+  // package and a date are required before moving on to the Details step.
   function s1Next() {
+    if (!selectedPkg) {
+      showErr("fpb-s1err", "Please select a package.");
+      return;
+    }
     if (!chosenDate) {
-      showErr("fpb-s1err", "Please choose a session date.");
+      showErr("fpb-s1err", "Please pick your session date from the calendar.");
       return;
     }
     clearErr("fpb-s1err");
+    collectAddons();
     renderPartialPaymentOption();
     updateStep2Price();
     bkGo(2);
   }
 
+  // Step 2 — Details → Payment.
   function s2Next() {
-    if (!selectedPkg) {
-      showErr("fpb-s2err", "Please select a package.");
-      return;
-    }
-    clearErr("fpb-s2err");
-    collectAddons();
-    bkGo(3);
-  }
-
-  function s3Next() {
     if (!validateDetails()) {
       return;
     }
     collectAddons();
     populatePaymentStep();
-    bkGo(4);
+    bkGo(3);
   }
 
   /* -------------------------------------------------
@@ -1640,7 +1633,7 @@
   /* -------------------------------------------------
      Public API
   ------------------------------------------------- */
-  window.snapbook = { bkGo, s1Next, s2Next, s3Next, proceedToCheckout };
+  window.snapbook = { bkGo, s1Next, s2Next, proceedToCheckout };
 
   /* -------------------------------------------------
      Boot
@@ -1650,13 +1643,7 @@
     initPartialPaymentOption();
     initStepIndicator();
 
-    [
-      "fpb-checkoutMsg",
-      "fpb-s1err",
-      "fpb-s2err",
-      "fpb-s3err",
-      "fpb-s4err",
-    ].forEach((id) => {
+    ["fpb-checkoutMsg", "fpb-s1err", "fpb-s2err", "fpb-s3err"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) {
         el.setAttribute("aria-live", "polite");

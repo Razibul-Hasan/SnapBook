@@ -848,12 +848,65 @@
     });
   }
 
+  /* Order Email attachment — WP media library picker. The hidden input
+     holds the attachment ID and is serialized with the settings form. */
+  function bindOrderEmailAttachment() {
+    const pick = document.getElementById("fpb-order-email-attachment-pick");
+    const remove = document.getElementById("fpb-order-email-attachment-remove");
+    const field = document.getElementById("fpb-order-email-attachment-id");
+    const label = document.getElementById("fpb-order-email-attachment-name");
+    if (!pick || !field) return;
+    if (!window.wp || !window.wp.media) {
+      pick.disabled = true;
+      pick.title = "Media library unavailable.";
+      return;
+    }
+
+    // Filenames are user data — build the node instead of using innerHTML.
+    function setLabel(text) {
+      if (!label) return;
+      label.textContent = "";
+      const strong = document.createElement("strong");
+      strong.textContent = text;
+      label.appendChild(strong);
+    }
+
+    let frame = null;
+    pick.addEventListener("click", () => {
+      if (!frame) {
+        frame = wp.media({
+          title: "Select or upload the order email attachment",
+          button: { text: "Use this file" },
+          multiple: false,
+        });
+        frame.on("select", () => {
+          const file = frame.state().get("selection").first().toJSON();
+          field.value = file.id;
+          setLabel(file.filename || file.title || "");
+          if (remove) remove.style.display = "";
+        });
+      }
+      frame.open();
+    });
+
+    if (remove) {
+      remove.addEventListener("click", () => {
+        field.value = "0";
+        setLabel("No file selected.");
+        remove.style.display = "none";
+      });
+    }
+  }
+
   function bindSettingsForm() {
     const form = document.getElementById("fpb-settings-form");
     if (!form) return;
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
+      // Sync TinyMCE (the Order Email editor) back to its textarea so
+      // FormData picks up the rich-text content.
+      if (window.tinymce) window.tinymce.triggerSave();
       const data = formToObject(form);
 
       post("snapbook_admin_save_settings", data)
@@ -889,6 +942,12 @@
     if (!grid || !label || !prevBtn || !nextBtn) return;
 
     let dateMap = {};
+    // Only one toggle request in flight at a time. Each toggle reads the
+    // date's current DB row and advances it (available→booked→blocked→
+    // available); firing several at once (a fast triple-click) makes them
+    // race on the same row, so the date can get stuck instead of cycling
+    // back to available. Serializing the requests keeps the cycle correct.
+    let togglePending = false;
     const view = new Date();
     view.setDate(1);
 
@@ -938,11 +997,15 @@
 
         cell.addEventListener("click", () => {
           const ds = cell.dataset.date;
-          if (!ds) return;
+          if (!ds || togglePending) return;
 
+          togglePending = true;
+          cell.style.opacity = "0.5";
           post("snapbook_admin_toggle_date", { date: ds })
             .then((res) => {
+              togglePending = false;
               if (!res.success) {
+                cell.style.opacity = "";
                 if (msg)
                   msg.textContent =
                     (res.data && res.data.message) || "Could not update date.";
@@ -959,6 +1022,8 @@
               renderCalendar();
             })
             .catch(() => {
+              togglePending = false;
+              cell.style.opacity = "";
               if (msg) msg.textContent = "Network error. Please try again.";
             });
         });
@@ -999,6 +1064,7 @@
   bindSessionSlugHelper();
   bindCheckoutFieldBuilder();
   bindSettingsForm();
+  bindOrderEmailAttachment();
   bindCrudForm(
     "fpb-session-form",
     "snapbook_admin_save_session",

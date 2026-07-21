@@ -1554,3 +1554,212 @@
     animation-duration: 1.5s;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   Two-column layout — informational sidebar beside the wizard.
+   Content is admin-editable in SnapBook → Frontend. When the
+   sidebar is empty/disabled the wrap gets .fpb-no-sidebar and the
+   form keeps its original single-column look.
+══════════════════════════════════════════════════════════════ */
+.fpb-wrap .fpb-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 1.6rem;
+  align-items: start;
+  max-width: 1140px;
+  margin: 0 auto;
+}
+
+.fpb-wrap .fpb-main {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.fpb-wrap .fpb-sidebar {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+/* With a sidebar present the wizard fills its column rather than the
+   stand-alone 800px centered width. */
+.fpb-wrap:not(.fpb-no-sidebar) .fpb-main .fpb-steps-bar,
+.fpb-wrap:not(.fpb-no-sidebar) .fpb-main .fpb-step-inner {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.fpb-wrap.fpb-no-sidebar .fpb-layout {
+  display: block;
+}
+
+/* ── Sidebar cards ── */
+.fpb-wrap .fpb-side-card {
+  background: var(--fpb-w);
+  border: 1px solid var(--fpb-border);
+  border-radius: 8px;
+  padding: 1.25rem 1.3rem;
+  box-shadow: var(--fpb-sh);
+}
+
+.fpb-wrap .fpb-side-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.9rem;
+}
+
+.fpb-wrap .fpb-side-ic {
+  color: var(--fpb-gold);
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.fpb-wrap .fpb-side-title {
+  font-family: var(--fpb-serif);
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--fpb-text);
+  line-height: 1.2;
+}
+
+.fpb-wrap .fpb-side-text {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--fpb-sub);
+}
+
+/* How it works — numbered steps */
+.fpb-wrap .fpb-side-steps {
+  list-style: none;
+  counter-reset: fpb-hiw;
+  margin: 0;
+  padding: 0;
+}
+
+.fpb-wrap .fpb-side-steps li {
+  counter-increment: fpb-hiw;
+  position: relative;
+  padding: 0.15rem 0 0 2rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--fpb-sub);
+  min-height: 1.4rem;
+}
+
+.fpb-wrap .fpb-side-steps li:last-child {
+  margin-bottom: 0;
+}
+
+.fpb-wrap .fpb-side-steps li::before {
+  content: counter(fpb-hiw);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  background: var(--fpb-gold-lt);
+  color: var(--fpb-gold-dk);
+  font-size: 0.72rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 50% deposit — dark accent card */
+.fpb-wrap .fpb-side-card-dark {
+  background: var(--fpb-teal);
+  border-color: var(--fpb-teal);
+}
+
+.fpb-wrap .fpb-side-card-dark .fpb-side-title {
+  color: #fff;
+}
+
+.fpb-wrap .fpb-side-card-dark .fpb-side-ic {
+  color: var(--fpb-gold-lt);
+}
+
+.fpb-wrap .fpb-side-card-dark .fpb-side-text {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Calendar card — the date picker now lives in the sidebar, so the
+   calendar drops its own chrome and fills its card. */
+.fpb-wrap .fpb-side-cal-sub {
+  margin: -0.35rem 0 0.9rem;
+}
+
+.fpb-wrap .fpb-sidebar .fpb-cal {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.fpb-wrap .fpb-sidebar #fpb-calMonth {
+  font-size: 0.96rem;
+}
+
+.fpb-wrap .fpb-sidebar .fpb-cal-nav {
+  width: 28px;
+  height: 28px;
+  font-size: 1rem;
+}
+
+.fpb-wrap .fpb-sidebar .fpb-cell {
+  min-height: 34px;
+  font-size: 0.78rem;
+}
+
+.fpb-wrap .fpb-sidebar .fpb-seldate {
+  margin-top: 0.7rem;
+  margin-bottom: 0;
+}
+
+@media (max-width: 860px) {
+  .fpb-wrap .fpb-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+    /* Override the desktop grid's align-items:start so each card/panel
+       stretches to full width instead of shrinking to its content. */
+    align-items: stretch;
+  }
+
+  /* Let the sidebar's cards join the single-column flow so the calendar
+     can be reordered above the wizard on small screens. */
+  .fpb-wrap .fpb-sidebar {
+    display: contents;
+  }
+
+  .fpb-wrap .fpb-side-hiw {
+    order: 1; /* How it works */
+  }
+
+  .fpb-wrap .fpb-side-card-dark {
+    order: 2; /* 50% deposit to confirm */
+  }
+
+  .fpb-wrap .fpb-side-cal {
+    order: 3; /* booking calendar */
+  }
+
+  .fpb-wrap .fpb-main {
+    order: 4; /* booking form last */
+  }
+}

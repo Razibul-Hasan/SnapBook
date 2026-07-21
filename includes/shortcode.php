@@ -371,6 +371,21 @@ function snapbook_enqueue_booking_assets()
         wp_enqueue_style('snapbook-icons');
     }
     wp_enqueue_script('snapbook-booking');
+
+    // Attach the admin's Appearance color override here, as the stylesheet is
+    // enqueued, so it prints together with the stylesheet in <head>. Adding it
+    // later (during the shortcode render, in the page body) is too late — by
+    // then snapbook_maybe_enqueue_assets() has already printed the stylesheet
+    // in <head>, so the inline override would be silently dropped. The static
+    // guard keeps a second enqueue from stacking a duplicate block.
+    static $theme_added = false;
+    if (! $theme_added) {
+        $theme_css = snapbook_theme_css();
+        if ($theme_css !== '') {
+            wp_add_inline_style('snapbook-booking', $theme_css);
+        }
+        $theme_added = true;
+    }
 }
 
 /**
@@ -409,17 +424,13 @@ function snapbook_shortcode($atts)
 
     snapbook_enqueue_booking_assets();
 
-    $theme_css = snapbook_theme_css();
-    if ($theme_css !== '') {
-        wp_add_inline_style('snapbook-booking', $theme_css);
-    }
-
     // Per-instance color overrides from the shortcode's primary/accent
-    // attributes, scoped to this instance only.
+    // attributes. Emitted inline in the output below (not via
+    // wp_add_inline_style) because the stylesheet is usually already printed
+    // in <head> by the time the shortcode runs, so an enqueued inline style
+    // would be dropped. Shortcodes run after wpautop, so the <style> tag is
+    // left untouched.
     $instance_css = snapbook_theme_vars_css($atts['primary'], $atts['accent'], '.fpb-wrap');
-    if ($instance_css !== '') {
-        wp_add_inline_style('snapbook-booking', $instance_css);
-    }
 
     $has_wc = class_exists('WooCommerce');
     $local_data = [
@@ -444,6 +455,10 @@ function snapbook_shortcode($atts)
     wp_localize_script('snapbook-booking', 'snapbookData', $local_data);
 
     ob_start();
+    if ($instance_css !== '') {
+        // CSS built from validated hex colors in snapbook_theme_vars_css().
+        echo '<style id="snapbook-instance-theme">' . $instance_css . '</style>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+    }
     snapbook_render_shortcode(['package' => $atts['package']]);
     return ob_get_clean();
 }
@@ -621,6 +636,165 @@ function snapbook_render_custom_checkout_field($key, $f, $force_span = false)
     echo '</div>';
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Frontend sidebar — informational cards shown beside the booking
+   form. Content is admin-editable in SnapBook → Frontend and stored
+   in fpb_fe_* options.
+───────────────────────────────────────────────────────────── */
+/**
+ * Defaults for the order confirmation email extras (SnapBook → Settings →
+ * Order Email): an editable message block and a file attachment such as a
+ * Terms of Service PDF. Lives here because woocommerce.php is only loaded
+ * when WooCommerce is active, while the settings screen always needs these.
+ * The message ships disabled so updating the plugin never silently changes
+ * the email customers receive.
+ */
+function snapbook_order_email_defaults()
+{
+    return [
+        'enable'        => 0,
+        'subject'       => __('Your booking is confirmed — {site_name}', 'snapbook'),
+        'heading'       => __('Your booking', 'snapbook'),
+        'message'       => __("<p>Hi {first_name},</p>\n<p>Thank you for booking <strong>{package_name}</strong> with us on <strong>{session_date}</strong>.</p>\n<p>Our terms are attached to this email. If you have any questions, just reply and we'll be happy to help.</p>\n<p>{site_name}</p>", 'snapbook'),
+        'order_table'   => 1,
+        'attachment_id' => 0,
+    ];
+}
+
+function snapbook_get_order_email_settings()
+{
+    $d = snapbook_order_email_defaults();
+    return [
+        'enable'        => (int) get_option('fpb_order_email_enable', $d['enable']),
+        'subject'       => (string) get_option('fpb_order_email_subject', $d['subject']),
+        'heading'       => (string) get_option('fpb_order_email_heading', $d['heading']),
+        'message'       => (string) get_option('fpb_order_email_message', $d['message']),
+        'order_table'   => (int) get_option('fpb_order_email_order_table', $d['order_table']),
+        'attachment_id' => (int) get_option('fpb_order_email_attachment_id', $d['attachment_id']),
+    ];
+}
+
+/**
+ * Human label for the chosen attachment — the real filename when the file
+ * still exists, so a deleted media item is obvious in the settings screen.
+ */
+function snapbook_order_email_attachment_label($attachment_id)
+{
+    $attachment_id = (int) $attachment_id;
+    if ($attachment_id < 1) {
+        return __('No file selected.', 'snapbook');
+    }
+    $path = get_attached_file($attachment_id);
+    if (! $path || ! file_exists($path)) {
+        return __('Selected file is missing — please choose another.', 'snapbook');
+    }
+    return basename($path);
+}
+
+function snapbook_frontend_sidebar_defaults()
+{
+    return [
+        'hiw_enable'     => 1,
+        'hiw_title'      => __('How it works', 'snapbook'),
+        'hiw_steps'      => __("Choose your package & session type\nFill in your details\nReserve & digitally sign the contract\nPay 50% deposit securely online\nWe confirm within 24 hours", 'snapbook'),
+        'date_title'     => __('Choose your date', 'snapbook'),
+        'date_sub'       => __('Select your preferred session date to begin.', 'snapbook'),
+        'deposit_enable' => 1,
+        'deposit_title'  => __('50% deposit to confirm', 'snapbook'),
+        'deposit_text'   => __('Your date is fully reserved once the deposit is paid. We send a full confirmation with session details and location suggestions. The balance is due before your session.', 'snapbook'),
+    ];
+}
+
+function snapbook_get_frontend_sidebar()
+{
+    $d = snapbook_frontend_sidebar_defaults();
+    return [
+        'hiw_enable'     => (int) get_option('fpb_fe_hiw_enable', $d['hiw_enable']),
+        'hiw_title'      => get_option('fpb_fe_hiw_title', $d['hiw_title']),
+        'hiw_steps'      => get_option('fpb_fe_hiw_steps', $d['hiw_steps']),
+        'date_title'     => get_option('fpb_fe_date_title', $d['date_title']),
+        'date_sub'       => get_option('fpb_fe_date_sub', $d['date_sub']),
+        'deposit_enable' => (int) get_option('fpb_fe_deposit_enable', $d['deposit_enable']),
+        'deposit_title'  => get_option('fpb_fe_deposit_title', $d['deposit_title']),
+        'deposit_text'   => get_option('fpb_fe_deposit_text', $d['deposit_text']),
+    ];
+}
+
+/**
+ * The booking calendar card — the customer picks their session date here
+ * (the wizard itself is now Package → Details → Payment). Rendered by both
+ * the sidebar and the standalone fallback, so its markup lives in one place.
+ * The element IDs match what booking.js binds (fpb-calGrid etc.).
+ */
+function snapbook_render_calendar_card($s)
+{
+    ob_start();
+    echo '<div class="fpb-side-card fpb-side-cal">';
+    echo '<div class="fpb-side-head"><span class="fpb-side-ic dashicons dashicons-calendar-alt" aria-hidden="true"></span><span class="fpb-side-title">' . esc_html($s['date_title']) . '</span></div>';
+    if ($s['date_sub'] !== '') {
+        echo '<p class="fpb-side-text fpb-side-cal-sub">' . esc_html($s['date_sub']) . '</p>';
+    }
+    echo '<div class="fpb-cal">';
+    echo '<div class="fpb-cal-head">';
+    echo '<button class="fpb-cal-nav" id="fpb-calPrev" type="button">&#8249;</button>';
+    echo '<span id="fpb-calMonth"></span>';
+    echo '<button class="fpb-cal-nav" id="fpb-calNext" type="button">&#8250;</button>';
+    echo '</div>';
+    echo '<div class="fpb-cal-days"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>';
+    echo '<div class="fpb-cal-grid" id="fpb-calGrid"></div>';
+    echo '</div>';
+    echo '<p id="fpb-selDate" class="fpb-seldate"></p>';
+    echo '</div>';
+    return ob_get_clean();
+}
+
+/**
+ * Build the frontend sidebar markup. The calendar card always renders
+ * (date selection lives here now); the informational cards each honour
+ * their own enable toggle. Output is fully escaped.
+ */
+function snapbook_render_frontend_sidebar()
+{
+    $s = snapbook_get_frontend_sidebar();
+
+    ob_start();
+
+    if (! empty($s['hiw_enable'])) {
+        $steps = array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', (string) $s['hiw_steps'])), 'strlen');
+        if ($s['hiw_title'] !== '' || ! empty($steps)) {
+            echo '<div class="fpb-side-card fpb-side-hiw">';
+            echo '<div class="fpb-side-head"><span class="fpb-side-ic dashicons dashicons-list-view" aria-hidden="true"></span><span class="fpb-side-title">' . esc_html($s['hiw_title']) . '</span></div>';
+            if (! empty($steps)) {
+                echo '<ol class="fpb-side-steps">';
+                foreach ($steps as $step) {
+                    echo '<li>' . esc_html($step) . '</li>';
+                }
+                echo '</ol>';
+            }
+            echo '</div>';
+        }
+    }
+
+    // Calendar card — always present, positioned right after "How it works".
+    echo snapbook_render_calendar_card($s); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — built from escaped parts
+
+    if (! empty($s['deposit_enable']) && ($s['deposit_title'] !== '' || $s['deposit_text'] !== '')) {
+        echo '<div class="fpb-side-card fpb-side-card-dark">';
+        echo '<div class="fpb-side-head"><span class="fpb-side-ic dashicons dashicons-shield-alt" aria-hidden="true"></span><span class="fpb-side-title">' . esc_html($s['deposit_title']) . '</span></div>';
+        if ($s['deposit_text'] !== '') {
+            echo '<p class="fpb-side-text">' . nl2br(esc_html($s['deposit_text'])) . '</p>';
+        }
+        echo '</div>';
+    }
+
+    $inner = trim(ob_get_clean());
+    if ($inner === '') {
+        return '';
+    }
+
+    return '<aside class="fpb-sidebar">' . $inner . '</aside>';
+}
+
 function snapbook_render_shortcode($opts = [])
 {
     $opts = wp_parse_args($opts, ['package' => '']);
@@ -633,49 +807,23 @@ function snapbook_render_shortcode($opts = [])
     } else {
         $checkout_label = ($mode === 'direct') ? __('Place Booking & Pay', 'snapbook') : __('Proceed to Payment', 'snapbook');
     }
+
+    $sidebar_html = snapbook_render_frontend_sidebar();
+    $wrap_class   = 'fpb-wrap' . ($sidebar_html === '' ? ' fpb-no-sidebar' : '');
 ?>
-    <div class="fpb-wrap"<?php echo $preselect !== '' ? ' data-package="' . esc_attr($preselect) . '"' : ''; ?>>
+    <div class="<?php echo esc_attr($wrap_class); ?>"<?php echo $preselect !== '' ? ' data-package="' . esc_attr($preselect) . '"' : ''; ?>>
+      <div class="fpb-layout">
+        <div class="fpb-main">
 
         <!-- Step indicator -->
         <div class="fpb-steps-bar" id="fpb-steps">
-            <div class="fpb-stab fpb-active" id="fpb-sp1"><span class="fpb-sci">1</span><?php esc_html_e('Date', 'snapbook'); ?></div>
-            <div class="fpb-stab" id="fpb-sp2"><span class="fpb-sci">2</span><?php esc_html_e('Package', 'snapbook'); ?></div>
-            <div class="fpb-stab" id="fpb-sp3"><span class="fpb-sci">3</span><?php esc_html_e('Details', 'snapbook'); ?></div>
-            <div class="fpb-stab" id="fpb-sp4"><span class="fpb-sci">4</span><?php esc_html_e('Payment', 'snapbook'); ?></div>
+            <div class="fpb-stab fpb-active" id="fpb-sp1"><span class="fpb-sci">1</span><?php esc_html_e('Package', 'snapbook'); ?></div>
+            <div class="fpb-stab" id="fpb-sp2"><span class="fpb-sci">2</span><?php esc_html_e('Details', 'snapbook'); ?></div>
+            <div class="fpb-stab" id="fpb-sp3"><span class="fpb-sci">3</span><?php esc_html_e('Payment', 'snapbook'); ?></div>
         </div>
 
-        <!-- STEP 1 — Date -->
+        <!-- STEP 1 — Package & Add-ons (date is chosen in the sidebar calendar) -->
         <div class="fpb-step fpb-act" id="fpb-s1">
-            <div class="fpb-step-inner">
-                <h2 class="fpb-title"><?php echo esc_html(get_option('fpb_step1_title', 'Choose Your Date')); ?></h2>
-                <p class="fpb-sub"><?php echo esc_html(get_option('fpb_step1_sub', 'Select your preferred session date to begin your booking.')); ?></p>
-
-                <div class="fpb-datesec" id="fpb-dateSec">
-                    <div class="fpb-cal">
-                        <div class="fpb-cal-head">
-                            <button class="fpb-cal-nav" id="fpb-calPrev" type="button">&#8249;</button>
-                            <span id="fpb-calMonth"></span>
-                            <button class="fpb-cal-nav" id="fpb-calNext" type="button">&#8250;</button>
-                        </div>
-                        <div class="fpb-cal-days">
-                            <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
-                            <span>Th</span><span>Fr</span><span>Sa</span>
-                        </div>
-                        <div class="fpb-cal-grid" id="fpb-calGrid"></div>
-                    </div>
-                    <p id="fpb-selDate" class="fpb-seldate"></p>
-                </div>
-
-                <div class="fpb-nav">
-                    <div></div>
-                    <button class="fpb-btn fpb-btn-gold" id="fpb-s1NextBtn" onclick="snapbook.s1Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
-                </div>
-                <p id="fpb-s1err" class="fpb-error"></p>
-            </div>
-        </div>
-
-        <!-- STEP 2 — Package & Add-ons -->
-        <div class="fpb-step" id="fpb-s2">
             <div class="fpb-step-inner">
                 <h2 class="fpb-title"><?php esc_html_e('Select Your Package', 'snapbook'); ?></h2>
                 <p class="fpb-sub"><?php esc_html_e("Choose a session type, package, and any add-ons you'd like.", 'snapbook'); ?></p>
@@ -728,15 +876,15 @@ function snapbook_render_shortcode($opts = [])
                 </div>
 
                 <div class="fpb-nav">
-                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(1)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
-                    <button class="fpb-btn fpb-btn-gold" id="fpb-s2NextBtn" onclick="snapbook.s2Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
+                    <div></div>
+                    <button class="fpb-btn fpb-btn-gold" id="fpb-s1NextBtn" onclick="snapbook.s1Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
                 </div>
-                <p id="fpb-s2err" class="fpb-error"></p>
+                <p id="fpb-s1err" class="fpb-error"></p>
             </div>
         </div>
 
-        <!-- STEP 3 — Details (checkout form, fields managed in SnapBook → Settings) -->
-        <div class="fpb-step" id="fpb-s3">
+        <!-- STEP 2 — Details (checkout form, fields managed in SnapBook → Settings) -->
+        <div class="fpb-step" id="fpb-s2">
             <div class="fpb-step-inner">
                 <h2 class="fpb-title"><?php esc_html_e('Your Details', 'snapbook'); ?></h2>
                 <p class="fpb-sub"><?php esc_html_e('Fill in your booking and contact details.', 'snapbook'); ?></p>
@@ -746,15 +894,15 @@ function snapbook_render_shortcode($opts = [])
                 </div>
 
                 <div class="fpb-nav">
-                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(2)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
-                    <button class="fpb-btn fpb-btn-gold" id="fpb-s3NextBtn" onclick="snapbook.s3Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
+                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(1)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
+                    <button class="fpb-btn fpb-btn-gold" id="fpb-s2NextBtn" onclick="snapbook.s2Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
                 </div>
-                <p id="fpb-s3err" class="fpb-error"></p>
+                <p id="fpb-s2err" class="fpb-error"></p>
             </div>
         </div>
 
-        <!-- STEP 4 — Payment -->
-        <div class="fpb-step" id="fpb-s4">
+        <!-- STEP 3 — Payment -->
+        <div class="fpb-step" id="fpb-s3">
             <div class="fpb-step-inner" id="fpb-payWrap">
                 <h2 class="fpb-title"><?php esc_html_e('Review & Payment', 'snapbook'); ?></h2>
                 <p class="fpb-sub"><?php esc_html_e("Review your booking, choose how you'd like to pay, and confirm.", 'snapbook'); ?></p>
@@ -788,10 +936,10 @@ function snapbook_render_shortcode($opts = [])
                 </div>
 
                 <div class="fpb-nav">
-                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(3)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
+                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(2)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
                     <button class="fpb-btn fpb-btn-gold fpb-checkout-btn" id="fpb-checkoutBtn" onclick="snapbook.proceedToCheckout()"><?php echo esc_html($checkout_label); ?> &#8594;</button>
                 </div>
-                <p id="fpb-s4err" class="fpb-error"></p>
+                <p id="fpb-s3err" class="fpb-error"></p>
                 <p id="fpb-checkoutMsg" class="fpb-checkout-msg"></p>
             </div>
             <!-- In-place booking confirmation (direct checkout mode) -->
@@ -825,6 +973,9 @@ function snapbook_render_shortcode($opts = [])
                 </div>
             </div>
         </div>
+        </div><!-- .fpb-main -->
+        <?php echo $sidebar_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — built from escaped parts in snapbook_render_frontend_sidebar() ?>
+      </div><!-- .fpb-layout -->
     </div>
 <?php
 }
