@@ -4,7 +4,7 @@
  * Plugin Name:  SnapBook
  * Plugin URI:   https://bestwebexpert.com
  * Description:  Multi-step photography booking with backend management and WooCommerce checkout. Shortcode: [snapbook]
- * Version:      2.5.0
+ * Version:      1.0.0
  * Author:       Razibul Hasan
  * Author URI:   https://bestwebexpert.com
  * Text Domain:  snapbook
