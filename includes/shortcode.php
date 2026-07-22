@@ -480,6 +480,10 @@ function snapbook_shortcode($atts)
         // still fetched live (see snapbook_get_catalog_data()).
         'catalog'    => snapbook_get_catalog_data(),
         'showLoader' => ((int) get_option('fpb_fe_loader_enable', 1) === 1),
+        // Optional Contract step between Details and Payment — shifts the
+        // payment step from 3 to 4 when on (see bkGo/PAY_STEP in booking.js).
+        'contractEnabled' => snapbook_contract_step_enabled(),
+        'contractRequiredMsg' => __('Please accept the Terms & Conditions to continue.', 'snapbook'),
     ];
     wp_localize_script('snapbook-booking', 'snapbookData', $local_data);
 
@@ -750,6 +754,63 @@ function snapbook_get_frontend_sidebar()
 }
 
 /**
+ * Contract step defaults — the optional "Contract" step between Details and
+ * Payment, where the customer reads the studio's terms and accepts them.
+ * Ships disabled so updating never adds a step to a live booking form.
+ */
+function snapbook_contract_defaults()
+{
+    return [
+        'enable'       => 0,
+        'step_label'   => __('Contract', 'snapbook'),
+        'title'        => __('Review & Sign Contract', 'snapbook'),
+        'sub'          => __('Please read and digitally sign our Terms & Conditions to proceed.', 'snapbook'),
+        'text'         => '<h3>' . __('Service Agreement', 'snapbook') . '</h3>'
+            . '<p>' . __('By accepting below, you agree to the following terms in full.', 'snapbook') . '</p>'
+            . '<h4>' . __('1. Booking fee &amp; payments', 'snapbook') . '</h4>'
+            . '<p>' . __('A non-refundable deposit is required to secure your date. The remaining balance is due before the session takes place.', 'snapbook') . '</p>'
+            . '<h4>' . __('2. Delivery time', 'snapbook') . '</h4>'
+            . '<p>' . __('Edited images are delivered within the timeframe stated for your package. Rush delivery may be available on request.', 'snapbook') . '</p>'
+            . '<h4>' . __('3. Cancellation &amp; rescheduling', 'snapbook') . '</h4>'
+            . '<p>' . __('Sessions may be rescheduled once, subject to availability. Deposits are not refundable on cancellation.', 'snapbook') . '</p>',
+        'accept_label' => __('I have read and agree to the full Terms & Conditions.', 'snapbook'),
+    ];
+}
+
+/**
+ * Contract step settings, with blank labels falling back to the defaults so
+ * the step can never render without a name or an acceptance line.
+ */
+function snapbook_get_contract_settings()
+{
+    $d = snapbook_contract_defaults();
+    $s = [
+        'enable'       => (int) get_option('fpb_fe_contract_enable', $d['enable']),
+        'step_label'   => (string) get_option('fpb_fe_contract_step_label', $d['step_label']),
+        'title'        => (string) get_option('fpb_fe_contract_title', $d['title']),
+        'sub'          => (string) get_option('fpb_fe_contract_sub', $d['sub']),
+        'text'         => (string) get_option('fpb_fe_contract_text', $d['text']),
+        'accept_label' => (string) get_option('fpb_fe_contract_accept_label', $d['accept_label']),
+    ];
+    foreach (['step_label', 'title', 'accept_label'] as $key) {
+        if (trim($s[$key]) === '') {
+            $s[$key] = $d[$key];
+        }
+    }
+    return $s;
+}
+
+/**
+ * Whether the wizard runs Package → Details → Contract → Payment (true) or
+ * the stock Package → Details → Payment (false).
+ */
+function snapbook_contract_step_enabled()
+{
+    $s = snapbook_get_contract_settings();
+    return ! empty($s['enable']);
+}
+
+/**
  * The booking calendar card — the customer picks their session date here
  * (the wizard itself is now Package → Details → Payment). Rendered by both
  * the sidebar and the standalone fallback, so its markup lives in one place.
@@ -839,6 +900,18 @@ function snapbook_render_shortcode($opts = [])
 
     $sidebar_html = snapbook_render_frontend_sidebar();
     $wrap_class   = 'fpb-wrap' . ($sidebar_html === '' ? ' fpb-no-sidebar' : '');
+
+    // The Contract step is optional, so the wizard is either 3 or 4 steps.
+    // Everything downstream (indicator, panel ids, Back buttons) is derived
+    // from $step_labels / $pay_step rather than hard-coded numbers.
+    $contract     = snapbook_get_contract_settings();
+    $has_contract = ! empty($contract['enable']);
+    $step_labels  = [__('Package', 'snapbook'), __('Details', 'snapbook')];
+    if ($has_contract) {
+        $step_labels[] = $contract['step_label'];
+    }
+    $step_labels[] = __('Payment', 'snapbook');
+    $pay_step      = count($step_labels);
 ?>
     <div class="<?php echo esc_attr($wrap_class); ?>"<?php echo $preselect !== '' ? ' data-package="' . esc_attr($preselect) . '"' : ''; ?>>
       <div class="fpb-layout">
@@ -846,9 +919,9 @@ function snapbook_render_shortcode($opts = [])
 
         <!-- Step indicator -->
         <div class="fpb-steps-bar" id="fpb-steps">
-            <div class="fpb-stab fpb-active" id="fpb-sp1"><span class="fpb-sci">1</span><?php esc_html_e('Package', 'snapbook'); ?></div>
-            <div class="fpb-stab" id="fpb-sp2"><span class="fpb-sci">2</span><?php esc_html_e('Details', 'snapbook'); ?></div>
-            <div class="fpb-stab" id="fpb-sp3"><span class="fpb-sci">3</span><?php esc_html_e('Payment', 'snapbook'); ?></div>
+            <?php foreach ($step_labels as $i => $step_label) : $n = $i + 1; ?>
+            <div class="fpb-stab<?php echo $n === 1 ? ' fpb-active' : ''; ?>" id="fpb-sp<?php echo (int) $n; ?>"><span class="fpb-sci"><?php echo (int) $n; ?></span><?php echo esc_html($step_label); ?></div>
+            <?php endforeach; ?>
         </div>
 
         <!-- STEP 1 — Package & Add-ons (date is chosen in the sidebar calendar) -->
@@ -930,8 +1003,35 @@ function snapbook_render_shortcode($opts = [])
             </div>
         </div>
 
-        <!-- STEP 3 — Payment -->
+        <?php if ($has_contract) : ?>
+        <!-- STEP 3 — Contract (optional, SnapBook → Frontend → Contract step) -->
         <div class="fpb-step" id="fpb-s3">
+            <div class="fpb-step-inner">
+                <h2 class="fpb-title"><?php echo esc_html($contract['title']); ?></h2>
+                <?php if (trim($contract['sub']) !== '') : ?>
+                <p class="fpb-sub"><?php echo esc_html($contract['sub']); ?></p>
+                <?php endif; ?>
+
+                <div class="fpb-contract-doc" id="fpb-contractDoc" tabindex="0" role="region" aria-label="<?php echo esc_attr($contract['title']); ?>">
+                    <?php echo wp_kses_post(wpautop($contract['text'])); ?>
+                </div>
+
+                <label class="fpb-contract-accept" for="fpb-contractAccept">
+                    <input type="checkbox" id="fpb-contractAccept">
+                    <span class="fpb-contract-accept-text"><?php echo esc_html($contract['accept_label']); ?></span>
+                </label>
+
+                <div class="fpb-nav">
+                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(2)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
+                    <button class="fpb-btn fpb-btn-gold" id="fpb-s3NextBtn" onclick="snapbook.s3Next()"><?php esc_html_e('Continue', 'snapbook'); ?> &#8594;</button>
+                </div>
+                <p id="fpb-s3err" class="fpb-error"></p>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <!-- FINAL STEP — Payment (step 3, or 4 when the contract step is on) -->
+        <div class="fpb-step" id="fpb-s<?php echo (int) $pay_step; ?>">
             <div class="fpb-step-inner" id="fpb-payWrap">
                 <h2 class="fpb-title"><?php esc_html_e('Review & Payment', 'snapbook'); ?></h2>
                 <p class="fpb-sub"><?php esc_html_e("Review your booking, choose how you'd like to pay, and confirm.", 'snapbook'); ?></p>
@@ -965,10 +1065,10 @@ function snapbook_render_shortcode($opts = [])
                 </div>
 
                 <div class="fpb-nav">
-                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(2)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
+                    <button class="fpb-btn fpb-btn-outline" onclick="snapbook.bkGo(<?php echo (int) ($pay_step - 1); ?>)">&#8592; <?php esc_html_e('Back', 'snapbook'); ?></button>
                     <button class="fpb-btn fpb-btn-gold fpb-checkout-btn" id="fpb-checkoutBtn" onclick="snapbook.proceedToCheckout()"><?php echo esc_html($checkout_label); ?> &#8594;</button>
                 </div>
-                <p id="fpb-s3err" class="fpb-error"></p>
+                <p id="fpb-payErr" class="fpb-error"></p>
                 <p id="fpb-checkoutMsg" class="fpb-checkout-msg"></p>
             </div>
             <!-- In-place booking confirmation (direct checkout mode) -->

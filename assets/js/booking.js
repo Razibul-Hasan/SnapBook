@@ -33,6 +33,13 @@
   let paymentPreview = null;
   let previewRequestSeq = 0;
 
+  // The Contract step (SnapBook → Frontend) sits between Details and Payment
+  // when it's on, so the wizard is 4 steps instead of 3. Every step number in
+  // this file is derived from these two constants.
+  const contractEnabled = !!snapbookData.contractEnabled;
+  const PAY_STEP = contractEnabled ? 4 : 3;
+  const TOTAL_STEPS = PAY_STEP;
+
   /* -------------------------------------------------
      AJAX
   ------------------------------------------------- */
@@ -936,7 +943,7 @@
     document
       .querySelectorAll(".fpb-step")
       .forEach((el) => el.classList.remove("fpb-act"));
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= TOTAL_STEPS; i++) {
       const sp = document.getElementById("fpb-sp" + i);
       if (!sp) continue;
       sp.classList.remove("fpb-active", "fpb-done");
@@ -952,7 +959,7 @@
 
   // Completed steps in the indicator are clickable to go back.
   function initStepIndicator() {
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= TOTAL_STEPS; i++) {
       const sp = document.getElementById("fpb-sp" + i);
       if (!sp) continue;
       sp.addEventListener("click", () => {
@@ -983,14 +990,58 @@
     bkGo(2);
   }
 
-  // Step 2 — Details → Payment.
+  // Step 2 — Details → Contract (if enabled) or straight to Payment.
   function s2Next() {
     if (!validateDetails()) {
       return;
     }
     collectAddons();
+    if (contractEnabled) {
+      bkGo(3);
+      return;
+    }
     populatePaymentStep();
     bkGo(3);
+  }
+
+  // Step 3 — Contract. The terms must be accepted before the payment step
+  // is built (in direct mode arriving there already places the order).
+  function s3Next() {
+    if (!contractAccepted()) {
+      showErr(
+        "fpb-s3err",
+        snapbookData.contractRequiredMsg ||
+          "Please accept the Terms & Conditions to continue.",
+      );
+      const box = document.getElementById("fpb-contractAccept");
+      if (box) box.focus();
+      return;
+    }
+    clearErr("fpb-s3err");
+    populatePaymentStep();
+    bkGo(PAY_STEP);
+  }
+
+  function contractAccepted() {
+    if (!contractEnabled) return true;
+    const box = document.getElementById("fpb-contractAccept");
+    return !!(box && box.checked);
+  }
+
+  // Keep the Continue button in step with the acceptance checkbox, so the
+  // requirement reads as a state rather than only as an error after a click.
+  function initContractStep() {
+    if (!contractEnabled) return;
+    const box = document.getElementById("fpb-contractAccept");
+    const btn = document.getElementById("fpb-s3NextBtn");
+    if (!box || !btn) return;
+    const sync = () => {
+      btn.disabled = !box.checked;
+      btn.title = box.checked ? "" : "Accept the terms to continue";
+      if (box.checked) clearErr("fpb-s3err");
+    };
+    box.addEventListener("change", sync);
+    sync();
   }
 
   /* -------------------------------------------------
@@ -1263,6 +1314,17 @@
           "No package selected. Please go back and choose a package.";
         msg.className = "fpb-checkout-msg fpb-err";
       }
+      return;
+    }
+    // Safety net for the classic/redirect path — the contract step already
+    // gates the way in, but the terms must hold for every route to checkout.
+    if (!contractAccepted()) {
+      bkGo(3);
+      showErr(
+        "fpb-s3err",
+        snapbookData.contractRequiredMsg ||
+          "Please accept the Terms & Conditions to continue.",
+      );
       return;
     }
     const btn = document.getElementById("fpb-checkoutBtn");
@@ -1724,7 +1786,7 @@
   /* -------------------------------------------------
      Public API
   ------------------------------------------------- */
-  window.snapbook = { bkGo, s1Next, s2Next, proceedToCheckout };
+  window.snapbook = { bkGo, s1Next, s2Next, s3Next, proceedToCheckout };
 
   /* -------------------------------------------------
      Boot
@@ -1733,8 +1795,15 @@
     init();
     initPartialPaymentOption();
     initStepIndicator();
+    initContractStep();
 
-    ["fpb-checkoutMsg", "fpb-s1err", "fpb-s2err", "fpb-s3err"].forEach((id) => {
+    [
+      "fpb-checkoutMsg",
+      "fpb-s1err",
+      "fpb-s2err",
+      "fpb-s3err",
+      "fpb-payErr",
+    ].forEach((id) => {
       const el = document.getElementById(id);
       if (el) {
         el.setAttribute("aria-live", "polite");

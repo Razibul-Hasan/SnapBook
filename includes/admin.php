@@ -1172,17 +1172,19 @@ function snapbook_page_frontend()
 
     if (isset($_POST['snapbook_frontend_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['snapbook_frontend_nonce'])), 'snapbook_frontend')) {
         // Checkbox toggles (absent = 0).
-        foreach (['fpb_fe_hiw_enable', 'fpb_fe_deposit_enable', 'fpb_fe_loader_enable'] as $key) {
+        foreach (['fpb_fe_hiw_enable', 'fpb_fe_deposit_enable', 'fpb_fe_loader_enable', 'fpb_fe_contract_enable'] as $key) {
             update_option($key, absint(wp_unslash($_POST[$key] ?? 0)) === 1 ? 1 : 0);
         }
         // Single-line text titles.
-        foreach (['fpb_fe_hiw_title', 'fpb_fe_date_title', 'fpb_fe_date_sub', 'fpb_fe_deposit_title'] as $key) {
+        foreach (['fpb_fe_hiw_title', 'fpb_fe_date_title', 'fpb_fe_date_sub', 'fpb_fe_deposit_title', 'fpb_fe_contract_step_label', 'fpb_fe_contract_title', 'fpb_fe_contract_sub', 'fpb_fe_contract_accept_label'] as $key) {
             update_option($key, sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
         }
         // Multi-line text areas.
         foreach (['fpb_fe_hiw_steps', 'fpb_fe_deposit_text'] as $key) {
             update_option($key, sanitize_textarea_field(wp_unslash($_POST[$key] ?? '')));
         }
+        // Rich text — the contract body keeps its formatting.
+        update_option('fpb_fe_contract_text', wp_kses_post(wp_unslash($_POST['fpb_fe_contract_text'] ?? '')));
         echo '<div class="notice notice-success is-dismissible inline"><p>' . esc_html__('Frontend settings saved.', 'snapbook') . '</p></div>';
     }
 
@@ -1193,8 +1195,60 @@ function snapbook_page_frontend()
     wp_nonce_field('snapbook_frontend', 'snapbook_frontend_nonce');
 
     echo '<div class="notice notice-info inline"><p>';
-    echo esc_html__('The booking form is Package → Details → Payment. Customers pick their session date from the calendar card in the sidebar. The calendar always shows; the other cards can each be turned off below.', 'snapbook');
+    echo esc_html__('The booking form is Package → Details → Payment, with an optional Contract step before Payment. Customers pick their session date from the calendar card in the sidebar. The calendar always shows; the other cards can each be turned off below.', 'snapbook');
     echo '</p></div>';
+
+    // ── Contract step ─
+    $c = function_exists('snapbook_get_contract_settings') ? snapbook_get_contract_settings() : [];
+    if ($c) {
+        echo '<div class="card fpb-settings-card">';
+        echo '<h2>' . esc_html__('Contract step', 'snapbook') . '</h2>';
+        echo '<p class="description">' . esc_html__('Adds a step between Details and Payment where the customer reads your Terms & Conditions and must tick the acceptance box before continuing.', 'snapbook') . '</p>';
+        echo '<input type="hidden" name="fpb_fe_contract_enable" value="0">';
+        echo '<table class="form-table" role="presentation"><tbody>';
+
+        echo '<tr><th scope="row">' . esc_html__('Show step', 'snapbook') . '</th><td>';
+        echo '<label class="fpb-toggle"><input type="checkbox" name="fpb_fe_contract_enable" value="1" ' . checked(1, (int) $c['enable'], false) . '><span class="fpb-toggle-track"></span><span class="fpb-toggle-text">' . esc_html__('Add the contract step to the booking form', 'snapbook') . '</span></label>';
+        echo '<p class="description">' . esc_html__('Off by default. When off, the form stays Package → Details → Payment.', 'snapbook') . '</p>';
+        echo '</td></tr>';
+
+        echo '<tr><th scope="row"><label for="fpb-fe-contract-step-label">' . esc_html__('Step name', 'snapbook') . '</label></th><td>';
+        echo '<input id="fpb-fe-contract-step-label" class="regular-text" type="text" name="fpb_fe_contract_step_label" value="' . esc_attr($c['step_label']) . '">';
+        echo '<p class="description">' . esc_html__('Shown in the step indicator at the top of the form.', 'snapbook') . '</p>';
+        echo '</td></tr>';
+
+        echo '<tr><th scope="row"><label for="fpb-fe-contract-title">' . esc_html__('Heading', 'snapbook') . '</label></th><td>';
+        echo '<input id="fpb-fe-contract-title" class="regular-text" type="text" name="fpb_fe_contract_title" value="' . esc_attr($c['title']) . '">';
+        echo '</td></tr>';
+
+        echo '<tr><th scope="row"><label for="fpb-fe-contract-sub">' . esc_html__('Subtitle', 'snapbook') . '</label></th><td>';
+        echo '<input id="fpb-fe-contract-sub" class="regular-text" type="text" name="fpb_fe_contract_sub" value="' . esc_attr($c['sub']) . '">';
+        echo '<p class="description">' . esc_html__('Shown under the heading. Leave blank to hide it.', 'snapbook') . '</p>';
+        echo '</td></tr>';
+
+        echo '<tr><th scope="row"><label for="fpb_fe_contract_text">' . esc_html__('Terms & Conditions', 'snapbook') . '</label></th><td>';
+        // Editor ID uses underscores — wp_editor/TinyMCE misbehave with hyphens.
+        wp_editor(
+            $c['text'],
+            'fpb_fe_contract_text',
+            [
+                'textarea_name' => 'fpb_fe_contract_text',
+                'textarea_rows' => 14,
+                'media_buttons' => false,
+                'quicktags'     => true,
+            ]
+        );
+        echo '<p class="description">' . esc_html__('The full agreement the customer reads. It renders in a scrollable box on the booking form.', 'snapbook') . '</p>';
+        echo '</td></tr>';
+
+        echo '<tr><th scope="row"><label for="fpb-fe-contract-accept">' . esc_html__('Acceptance text', 'snapbook') . '</label></th><td>';
+        echo '<input id="fpb-fe-contract-accept" class="large-text" type="text" name="fpb_fe_contract_accept_label" value="' . esc_attr($c['accept_label']) . '">';
+        echo '<p class="description">' . esc_html__('The label beside the checkbox the customer must tick to continue.', 'snapbook') . '</p>';
+        echo '</td></tr>';
+
+        echo '</tbody></table>';
+        echo '</div>';
+    }
 
     // ── How it works ─
     echo '<div class="card fpb-settings-card">';

@@ -937,6 +937,16 @@
     });
   }
 
+  // The Frontend page posts normally (no AJAX), but the contract editor still
+  // needs an explicit sync so the visual-mode content reaches $_POST.
+  function bindFrontendForm() {
+    const form = document.getElementById("fpb-frontend-form");
+    if (!form) return;
+    form.addEventListener("submit", () => {
+      if (window.tinymce) window.tinymce.triggerSave();
+    });
+  }
+
   function bindSettingsForm() {
     const form = document.getElementById("fpb-settings-form");
     if (!form) return;
@@ -1103,6 +1113,7 @@
   bindSessionSlugHelper();
   bindCheckoutFieldBuilder();
   bindSettingsForm();
+  bindFrontendForm();
   bindOrderEmailAttachment();
   bindCrudForm(
     "fpb-session-form",
