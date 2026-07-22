@@ -19,7 +19,8 @@
   --sb-border-soft: #f0f0f1;
   --sb-radius: 10px;
   --sb-radius-sm: 6px;
-  --sb-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --sb-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.08);
   --sb-shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.18);
 
   /* legacy var still referenced by inline styles */
@@ -233,6 +234,10 @@
 .fpb-admin-wrap .button-link-delete,
 .fpb-btn-danger {
   color: #b32d2e !important;
+  padding: 10px 39px;
+  border: 1px solid red;
+  border-radius: 5px;
+  text-decoration: none;
 }
 
 .fpb-admin-wrap .button-link-delete:hover,
@@ -621,8 +626,25 @@
   color: #b32d2e;
 }
 
-.fpb-field-note,
-.fpb-section-desc,
+/* Success notes fade themselves out once read (see setMsg in admin.js).
+   Errors are left on screen until the next save attempt. */
+.fpb-form-msg,
+#fpb-settings-msg {
+  transition: opacity 0.35s ease;
+}
+
+.fpb-form-msg.fpb-msg-fade,
+#fpb-settings-msg.fpb-msg-fade {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fpb-form-msg,
+  #fpb-settings-msg {
+    transition: none;
+  }
+}
+
 .fpb-hint {
   color: var(--sb-sub);
   font-size: 13px;
@@ -777,8 +799,7 @@
   color: var(--sb-muted);
 }
 
-.fpb-table td .button,
-.fpb-table td .fpb-status-select {
+.fpb-table td .button {
   vertical-align: middle;
 }
 
@@ -808,13 +829,11 @@
   flex-shrink: 0;
 }
 
-.fpb-badge-pending,
 .sb-badge-pending {
   background: #fff6e0;
   color: #8a6100;
 }
 
-.fpb-badge-pending_payment,
 .sb-badge-pending_payment {
   background: #eef1ff;
   color: #3b47b8;
@@ -822,25 +841,21 @@
 
 .fpb-badge-confirmed,
 .sb-badge-confirmed,
-.fpb-badge-processing,
 .sb-badge-processing {
   background: #e7f6ec;
   color: #147a3d;
 }
 
-.fpb-badge-cancelled,
 .sb-badge-cancelled {
   background: #fdecec;
   color: #b32d2e;
 }
 
-.fpb-badge-completed,
 .sb-badge-completed {
   background: #e7f0fa;
   color: #1d5b9f;
 }
 
-.fpb-badge-on-hold,
 .sb-badge-on-hold {
   background: #fff1e0;
   color: #96570f;
@@ -945,9 +960,7 @@
   color: #b32d2e !important;
 }
 
-.fpb-status-select,
-.fpb-actions-cell .sb-status-select,
-.fpb-actions-cell .fpb-status-select {
+.fpb-actions-cell .sb-status-select {
   min-width: 140px;
   max-width: 100%;
 }
@@ -982,7 +995,6 @@
   padding: 16px;
 }
 
-.fpb-modal-inner,
 .sb-modal-inner {
   width: min(760px, 96vw);
   max-height: 88vh;
@@ -993,7 +1005,6 @@
   animation: sb-pop 0.18s ease;
 }
 
-.fpb-modal-head,
 .sb-modal-head {
   padding: 14px 18px;
   border-bottom: 1px solid var(--sb-border);
@@ -1009,7 +1020,6 @@
   z-index: 1;
 }
 
-.fpb-modal-close,
 .sb-modal-close {
   border: none;
   background: transparent;
@@ -1023,19 +1033,16 @@
   transition: background 0.15s ease;
 }
 
-.fpb-modal-close:hover,
 .sb-modal-close:hover {
   background: var(--sb-border-soft);
   color: var(--sb-ink);
 }
 
-.fpb-modal-body,
 .sb-modal-body {
   padding: 8px 18px 16px;
 }
 
-.fpb-modal-row,
-.sb-modal-row {
+.fpb-modal-row {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -1043,19 +1050,16 @@
   border-bottom: 1px solid var(--sb-border-soft);
 }
 
-.fpb-modal-row:last-child,
-.sb-modal-row:last-child {
+.fpb-modal-row:last-child {
   border-bottom: 0;
 }
 
-.fpb-modal-label,
-.sb-modal-label {
+.fpb-modal-label {
   color: var(--sb-muted);
   font-size: 12.5px;
 }
 
-.fpb-modal-val,
-.sb-modal-val {
+.fpb-modal-val {
   text-align: right;
   font-weight: 500;
   font-size: 13px;
@@ -1472,26 +1476,18 @@
     min-width: 860px;
   }
 
-  .fpb-status-select {
-    max-width: 100%;
-    width: 100%;
-  }
-
-  .fpb-table td .fpb-status-select,
   .fpb-table td select {
     width: 100%;
     min-width: 0;
   }
 
-  .fpb-modal-row,
-  .sb-modal-row {
+  .fpb-modal-row {
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
   }
 
-  .fpb-modal-val,
-  .sb-modal-val {
+  .fpb-modal-val {
     text-align: left;
   }
 }
@@ -1544,8 +1540,7 @@
   }
 
   .fpb-actions-cell .button,
-  .fpb-actions-cell .sb-status-select,
-  .fpb-actions-cell .fpb-status-select {
+  .fpb-actions-cell .sb-status-select {
     width: 100%;
   }
 }
@@ -1700,7 +1695,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .sb-modal-inner,
-  .fpb-modal-inner,
   .fpb-row-actions-menu {
     animation: none;
   }

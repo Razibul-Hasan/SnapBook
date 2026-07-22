@@ -336,6 +336,30 @@ function snapbook_theme_css()
 }
 
 /* ─────────────────────────────────────────────────────────────
+   Booking catalog
+───────────────────────────────────────────────────────────── */
+/**
+ * Session types, packages and add-ons offered on the booking form.
+ *
+ * Shared by the shortcode (which inlines this into the page so the form
+ * paints without waiting on admin-ajax) and by snapbook_ajax_get_data()
+ * (the fallback for renders that never got the inline copy). Availability
+ * dates are deliberately NOT here: they must stay a live request, or a
+ * cached page would offer dates that have since been booked.
+ */
+function snapbook_get_catalog_data()
+{
+    global $wpdb;
+    $pfx = $wpdb->prefix . 'fpb_';
+
+    return [
+        'sessions' => $wpdb->get_results("SELECT id, name, emoji, slug FROM {$pfx}sessions WHERE active=1 ORDER BY sort_order, id"), // phpcs:ignore
+        'packages' => $wpdb->get_results("SELECT id, session_id, name, slug, price, duration, description, featured FROM {$pfx}packages WHERE active=1 ORDER BY sort_order, id"), // phpcs:ignore
+        'addons'   => $wpdb->get_results("SELECT id, name, price, emoji, description, package_id, package_ids FROM {$pfx}addons WHERE active=1 ORDER BY sort_order, id"), // phpcs:ignore
+    ];
+}
+
+/* ─────────────────────────────────────────────────────────────
    Register assets & shortcode
 ───────────────────────────────────────────────────────────── */
 add_action('init', 'snapbook_register_assets');
@@ -451,6 +475,11 @@ function snapbook_shortcode($atts)
         'confirmMsg'          => get_option('fpb_confirm_msg', __('Thank you for your booking! A confirmation email has been sent to {email}.', 'snapbook')),
         'confirmPendingTitle' => get_option('fpb_confirm_pending_title', __('Booking Received!', 'snapbook')),
         'confirmPendingMsg'   => get_option('fpb_confirm_pending_msg', __('Thank you for your booking! Complete the payment below to confirm your slot.', 'snapbook')),
+        // Packages/sessions/add-ons travel with the page, so the form renders
+        // on first paint instead of after an admin-ajax round trip. Dates are
+        // still fetched live (see snapbook_get_catalog_data()).
+        'catalog'    => snapbook_get_catalog_data(),
+        'showLoader' => ((int) get_option('fpb_fe_loader_enable', 1) === 1),
     ];
     wp_localize_script('snapbook-booking', 'snapbookData', $local_data);
 
@@ -776,7 +805,7 @@ function snapbook_render_frontend_sidebar()
     }
 
     // Calendar card — always present, positioned right after "How it works".
-    echo snapbook_render_calendar_card($s); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — built from escaped parts
+    echo snapbook_render_calendar_card($s); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from escaped parts
 
     if (! empty($s['deposit_enable']) && ($s['deposit_title'] !== '' || $s['deposit_text'] !== '')) {
         echo '<div class="fpb-side-card fpb-side-card-dark">';
@@ -974,7 +1003,7 @@ function snapbook_render_shortcode($opts = [])
             </div>
         </div>
         </div><!-- .fpb-main -->
-        <?php echo $sidebar_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — built from escaped parts in snapbook_render_frontend_sidebar() ?>
+        <?php echo $sidebar_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from escaped parts in snapbook_render_frontend_sidebar() ?>
       </div><!-- .fpb-layout -->
     </div>
 <?php

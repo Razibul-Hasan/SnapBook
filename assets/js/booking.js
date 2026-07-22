@@ -97,52 +97,131 @@
   }
 
   /* -------------------------------------------------
+     Loading skeletons
+  ------------------------------------------------- */
+  // Placeholder shapes shown while data is in flight, so the form has its
+  // final dimensions from the first paint and nothing jumps when data lands.
+  // Disabled from the admin via Frontend → "Loading placeholders".
+  // The placeholders are injected as direct children of the existing grids
+  // (#fpb-calGrid, #fpb-pkgGrid), so they inherit those grid tracks. Wrapping
+  // them in a container of their own would nest a grid inside a grid and
+  // collapse the whole skeleton into the first column.
+  function skeletonHtml(kind) {
+    if (kind === "calendar") {
+      return '<span class="fpb-skel fpb-skel-cell" aria-hidden="true"></span>'.repeat(
+        35,
+      );
+    }
+    return (
+      '<div class="fpb-skel-card" aria-hidden="true">' +
+      '<span class="fpb-skel fpb-skel-line fpb-skel-w60"></span>' +
+      '<span class="fpb-skel fpb-skel-line fpb-skel-w40"></span>' +
+      '<span class="fpb-skel fpb-skel-line"></span>' +
+      "</div>"
+    ).repeat(3);
+  }
+
+  function showSkeleton(kind) {
+    if (!snapbookData.showLoader) return;
+    const target = document.getElementById(
+      kind === "calendar" ? "fpb-calGrid" : "fpb-pkgGrid",
+    );
+    if (!target || target.dataset.fpbSkel === "1") return;
+    target.dataset.fpbSkel = "1";
+    target.setAttribute("aria-busy", "true");
+    target.innerHTML = skeletonHtml(kind);
+  }
+
+  function clearSkeleton() {
+    ["fpb-calGrid", "fpb-pkgGrid"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.fpbSkel !== "1") return;
+      delete el.dataset.fpbSkel;
+      el.removeAttribute("aria-busy");
+      el.innerHTML = "";
+    });
+  }
+
+  /* -------------------------------------------------
      Init
   ------------------------------------------------- */
+  // The catalog ships inline with the page, so packages paint immediately.
+  // Only availability dates need a live request (a cached page must never
+  // offer a date that has since been booked).
   function init() {
-    const requests = [
-      post("snapbook_get_data", {}),
-      post("snapbook_get_dates", {}),
-    ];
-    if (snapbookData.hasWC) {
-      requests.push(post("snapbook_get_payment_gateways", {}));
+    const inline = snapbookData.catalog;
+    const catalogReady = !!(inline && inline.packages);
+
+    if (catalogReady) {
+      applyCatalog(inline);
+      resolvePreselectPackage();
+      renderSessionTabs();
+      updatePkgNextState();
+    } else {
+      showSkeleton("packages");
     }
+    showSkeleton("calendar");
+
+    const requests = catalogReady ? [] : [post("snapbook_get_data", {})];
+    requests.push(post("snapbook_get_dates", {}));
 
     Promise.all(requests)
       .then((responses) => {
-        const dataRes = responses[0];
-        const datesRes = responses[1];
-        const gatewaysRes = responses[2];
-        if (dataRes.success) {
-          sessions = dataRes.data.sessions || [];
-          packages = dataRes.data.packages || [];
-          addons = dataRes.data.addons || [];
-          partialPaymentEnabled = !!dataRes.data.partialPaymentEnabled;
-          partialBlockDays =
-            parseInt(dataRes.data.partialBlockDays || 0, 10) || 0;
-          partialOptionLabel =
-            dataRes.data.partialOptionLabel || partialOptionLabel;
-          if (!partialPaymentEnabled) {
-            usePartialPayment = false;
-          }
+        const datesRes = responses[responses.length - 1];
+        // Clear placeholders before rendering, or the render would be
+        // overwritten by the teardown.
+        clearSkeleton();
+        if (!catalogReady && responses[0] && responses[0].success) {
+          applyCatalog(responses[0].data);
+          resolvePreselectPackage();
+          renderSessionTabs();
+          updatePkgNextState();
         }
         if (datesRes.success) {
           bookedDates = datesRes.data || {};
         }
-        if (gatewaysRes && gatewaysRes.success) {
-          paymentGateways = gatewaysRes.data.gateways || [];
-        }
-        resolvePreselectPackage();
-        renderSessionTabs();
         initCalendar();
-        updatePkgNextState();
       })
       .catch(() => {
+        clearSkeleton();
         const t = document.getElementById("fpb-typeTabs");
         if (t)
           t.innerHTML =
-            '<p style="color:#c0392b;font-size:.85rem">Could not load booking data. Please refresh.</p>';
+            '<p class="fpb-load-error">Could not load booking data. Please refresh.</p>';
       });
+  }
+
+  // Copy a catalog payload (inline or AJAX — same shape) into module state.
+  function applyCatalog(data) {
+    sessions = data.sessions || [];
+    packages = data.packages || [];
+    addons = data.addons || [];
+    if (typeof data.partialPaymentEnabled !== "undefined") {
+      partialPaymentEnabled = !!data.partialPaymentEnabled;
+      partialBlockDays = parseInt(data.partialBlockDays || 0, 10) || 0;
+      partialOptionLabel = data.partialOptionLabel || partialOptionLabel;
+      if (!partialPaymentEnabled) usePartialPayment = false;
+    }
+  }
+
+  // Payment gateways are only needed on the payment step, so they are
+  // fetched when the customer commits to a package rather than on page
+  // load — one less request blocking the first render.
+  let gatewaysPromise = null;
+  let gatewaysLoaded = false;
+  function prefetchGateways() {
+    if (gatewaysPromise || !snapbookData.hasWC) return gatewaysPromise;
+    gatewaysPromise = post("snapbook_get_payment_gateways", {})
+      .then((res) => {
+        if (res && res.success) paymentGateways = res.data.gateways || [];
+        gatewaysLoaded = true;
+      })
+      .catch(() => {
+        // Settled either way: the payment step falls back to the embedded
+        // checkout, and the list must not sit on "loading" forever.
+        gatewaysLoaded = true;
+      });
+    return gatewaysPromise;
   }
 
   /* -------------------------------------------------
@@ -898,6 +977,9 @@
     collectAddons();
     renderPartialPaymentOption();
     updateStep2Price();
+    // Warm the gateway list while the customer fills in their details, so
+    // the payment step has it ready without delaying the initial page load.
+    prefetchGateways();
     bkGo(2);
   }
 
@@ -1040,6 +1122,15 @@
     if (loadFailed) {
       wrap.innerHTML =
         '<p class="fpb-gateway-loading">Could not load payment methods. You can still continue — payment options will be shown on the payment page.</p>';
+      return;
+    }
+
+    // Gateways load lazily (see prefetchGateways). While the request is in
+    // flight, show the loading note and paint the list once it settles.
+    if (!gatewaysLoaded) {
+      wrap.innerHTML =
+        '<p class="fpb-gateway-loading">Loading payment methods…</p>';
+      prefetchGateways().then(() => renderPaymentGateways(loadFailed));
       return;
     }
 
