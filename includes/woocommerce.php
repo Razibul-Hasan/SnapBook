@@ -1523,6 +1523,133 @@ function snapbook_email_attach_order_file($attachments, $email_id = '', $object 
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   Admin "New booking" notification — the same branded shell the
+   customer gets, but with the full booking laid bare (payment
+   breakdown, customer contact, a manage-order link). Replaces
+   WooCommerce's plain New Order email for booking orders when the
+   admin turns it on in SnapBook → Settings → Admin Order Email.
+═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Whether SnapBook's branded admin email replaces WooCommerce's New Order
+ * body for this order. Booking orders only — never the balance invoice.
+ */
+function snapbook_admin_order_email_applies($order)
+{
+    if (! $order || ! is_a($order, 'WC_Order')) {
+        return false;
+    }
+    if (! function_exists('snapbook_get_admin_email_settings')) {
+        return false;
+    }
+    if ((int) snapbook_get_admin_email_settings()['enable'] !== 1) {
+        return false;
+    }
+    if ((int) $order->get_meta('_fpb_is_balance_order', true) === 1) {
+        return false;
+    }
+    return (bool) snapbook_is_booking_order($order);
+}
+
+/**
+ * The admin's editable intro note with {placeholders} resolved, as
+ * email-ready HTML. Shares the customer email's placeholder map.
+ */
+function snapbook_admin_email_intro_html($order)
+{
+    $intro = trim((string) snapbook_get_admin_email_settings()['intro']);
+    if ($intro === '') {
+        return '';
+    }
+    $intro = strtr($intro, snapbook_order_email_placeholders($order));
+    if (strpos($intro, '<p') === false && strpos($intro, '<div') === false) {
+        $intro = wpautop($intro);
+    }
+    return wp_kses_post($intro);
+}
+
+/**
+ * The customer's note for this order, from the WooCommerce order comment with
+ * the booking line item's stored copy as a fallback.
+ */
+function snapbook_admin_email_customer_note($order)
+{
+    if (! $order || ! is_a($order, 'WC_Order')) {
+        return '';
+    }
+    $note = trim((string) $order->get_customer_note());
+    if ($note === '') {
+        $note = trim((string) $order->get_meta('_fpb_notes', true));
+    }
+    return $note;
+}
+
+/**
+ * Swap WooCommerce's admin New Order template for SnapBook's branded one.
+ */
+add_filter('wc_get_template', 'snapbook_override_admin_email_template', 10, 5);
+function snapbook_override_admin_email_template($template, $template_name, $args = [], $template_path = '', $default_path = '')
+{
+    $map = [
+        'emails/admin-new-order.php'       => 'emails/snapbook-admin-order.php',
+        'emails/plain/admin-new-order.php' => 'emails/plain/snapbook-admin-order.php',
+    ];
+    if (! isset($map[$template_name]) || empty($args['order'])) {
+        return $template;
+    }
+    if (! snapbook_admin_order_email_applies($args['order'])) {
+        return $template;
+    }
+
+    $custom = SNAPBOOK_DIR . 'templates/' . $map[$template_name];
+    return file_exists($custom) ? $custom : $template;
+}
+
+/**
+ * Let the admin own the subject, heading and recipient of the New Order email.
+ */
+add_action('init', 'snapbook_register_admin_email_filters');
+function snapbook_register_admin_email_filters()
+{
+    add_filter('woocommerce_email_subject_new_order', 'snapbook_filter_admin_email_subject', 10, 2);
+    add_filter('woocommerce_email_heading_new_order', 'snapbook_filter_admin_email_heading', 10, 2);
+    add_filter('woocommerce_email_recipient_new_order', 'snapbook_filter_admin_email_recipient', 10, 2);
+}
+
+function snapbook_filter_admin_email_subject($subject, $order = null)
+{
+    if (! snapbook_admin_order_email_applies($order)) {
+        return $subject;
+    }
+    $custom = trim((string) snapbook_get_admin_email_settings()['subject']);
+    if ($custom === '') {
+        return $subject;
+    }
+    return strtr($custom, snapbook_order_email_placeholders($order));
+}
+
+function snapbook_filter_admin_email_heading($heading, $order = null)
+{
+    if (! snapbook_admin_order_email_applies($order)) {
+        return $heading;
+    }
+    $custom = trim((string) snapbook_get_admin_email_settings()['heading']);
+    if ($custom === '') {
+        return $heading;
+    }
+    return strtr($custom, snapbook_order_email_placeholders($order));
+}
+
+function snapbook_filter_admin_email_recipient($recipient, $order = null)
+{
+    if (! snapbook_admin_order_email_applies($order)) {
+        return $recipient;
+    }
+    $custom = trim((string) snapbook_get_admin_email_settings()['recipient']);
+    return $custom !== '' ? $custom : $recipient;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    Direct checkout — create the order straight from the booking
    form (Details step) and send the customer to the WooCommerce
    order-payment page, skipping the checkout form page entirely.

@@ -4,7 +4,7 @@ Tags: booking, photography, woocommerce, appointment, calendar
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,13 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 
 == Changelog ==
 
+= 1.2.0 =
+* New **Admin Order Email** setting (SnapBook → Settings): send yourself a branded "new booking" notification using the same template your customers get, instead of WooCommerce's plain New Order email.
+* The admin email lays out the full booking at a glance — session and add-ons, a payment breakdown (deposit taken vs. balance still due), and any note the customer left.
+* Rich customer contact block: clickable email and WhatsApp, hotel / place of stay, street address and country.
+* Optional custom recipient, subject, heading, and an editable intro note with placeholders; ships off so existing sites are unchanged until you turn it on.
+* Redesigned booking confirmation email — a centered "confirmed" badge, the session date featured in a highlight card, and a matching "Order summary" totals panel shared with the admin notification.
+
 = 1.1.1 =
 * The step indicator and the booking form now share a single background card for a cleaner, more unified look.
 
@@ -106,6 +113,9 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 * Security hardening throughout: nonce verification, output escaping, and input sanitisation.
 
 == Upgrade Notice ==
+
+= 1.2.0 =
+Adds a branded admin "new booking" email with the full booking details. Off by default — enable it under SnapBook → Settings → Admin Order Email.
 
 = 1.1.1 =
 Visual polish only: the step indicator and booking form now sit in one card. No settings or behaviour change.

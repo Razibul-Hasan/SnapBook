@@ -247,6 +247,65 @@ function snapbook_email_title($text)
 }
 
 /**
+ * Centered "confirmed" emblem — a filled brand-colored disc with a checkmark.
+ * The eye-catching opening for the booking confirmation. Table + fixed sizing
+ * so it survives Outlook (which ignores border-radius, degrading to a square).
+ */
+function snapbook_email_hero_badge($tone = 'accent')
+{
+    $p  = snapbook_email_palette();
+    $bg = $tone === 'primary' ? $p['primary'] : $p['accent'];
+    $fg = $tone === 'primary' ? $p['on_primary'] : $p['on_accent'];
+
+    return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:2px auto 18px;"><tr>'
+        . '<td align="center" valign="middle" width="66" height="66" style="width:66px;height:66px;background-color:' . esc_attr($bg) . ';border-radius:50%;text-align:center;">'
+        . '<span style="font-family:Arial,Helvetica,sans-serif;font-size:33px;line-height:66px;color:' . esc_attr($fg) . ';">&#10004;</span>'
+        . '</td></tr></table>';
+}
+
+/**
+ * Centered highlight card — a small eyebrow, a large serif headline and an
+ * optional sub-line, on a soft brand tint. Used to feature the single most
+ * important fact of a booking (its date) so it pops out of the message.
+ */
+function snapbook_email_highlight($eyebrow, $headline, $sub = '')
+{
+    $p = snapbook_email_palette();
+
+    $html  = '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:separate;background-color:' . esc_attr($p['primary_lt']) . ';border:1px solid ' . esc_attr($p['primary_lt']) . ';border-radius:12px;">';
+    $html .= '<tr><td align="center" style="padding:24px 26px;">';
+    if ($eyebrow !== '') {
+        $html .= '<div style="margin:0 0 8px;font-family:' . esc_attr($p['sans']) . ';font-size:11px;font-weight:700;line-height:1;letter-spacing:0.18em;text-transform:uppercase;color:' . esc_attr($p['primary_dk']) . ';">' . esc_html($eyebrow) . '</div>';
+    }
+    $html .= '<div style="font-family:' . esc_attr($p['serif']) . ';font-size:23px;line-height:1.3;color:' . esc_attr($p['text']) . ';">' . esc_html($headline) . '</div>';
+    if ($sub !== '') {
+        $html .= '<div style="margin:9px 0 0;font-family:' . esc_attr($p['sans']) . ';font-size:14px;line-height:1.5;color:' . esc_attr($p['sub']) . ';">' . esc_html($sub) . '</div>';
+    }
+    $html .= '</td></tr></table>';
+
+    return $html;
+}
+
+/**
+ * Format a stored booking date string ("2026-08-14") into a friendly, localized
+ * label ("Friday, 14 August 2026"). Falls back to the raw value if it can't be
+ * parsed, so an unusual format is shown rather than dropped.
+ */
+function snapbook_email_pretty_date($date)
+{
+    $date = trim((string) $date);
+    if ($date === '') {
+        return '';
+    }
+    $ts = strtotime($date);
+    if ($ts === false) {
+        return $date;
+    }
+    $format = function_exists('get_option') ? (string) get_option('date_format', 'F j, Y') : 'F j, Y';
+    return function_exists('date_i18n') ? date_i18n($format, $ts) : gmdate('F j, Y', $ts);
+}
+
+/**
  * Body paragraph. Pass pre-sanitised rich text as $is_html.
  */
 function snapbook_email_text($text, $is_html = false)
@@ -324,20 +383,28 @@ function snapbook_email_spacer($height = 20)
 }
 
 /**
- * Section label above a block.
+ * Section label above a block — a short brand-colored rule, then the label,
+ * echoing the accent tick the booking form uses on its section headings.
  */
 function snapbook_email_section_label($label)
 {
     $p = snapbook_email_palette();
 
-    return '<div style="margin:0 0 12px;font-family:' . esc_attr($p['sans']) . ';font-size:11px;font-weight:700;line-height:1;letter-spacing:0.16em;text-transform:uppercase;color:' . esc_attr($p['muted']) . ';">'
-        . esc_html($label) . '</div>';
+    return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0 0 13px;"><tr>'
+        . '<td valign="middle" style="padding:0 9px 0 0;">'
+        . '<div style="width:18px;height:2px;line-height:2px;font-size:0;background-color:' . esc_attr($p['primary']) . ';border-radius:2px;">&nbsp;</div>'
+        . '</td>'
+        . '<td valign="middle" style="font-family:' . esc_attr($p['sans']) . ';font-size:11px;font-weight:700;line-height:1;letter-spacing:0.16em;text-transform:uppercase;color:' . esc_attr($p['muted']) . ';">'
+        . esc_html($label) . '</td>'
+        . '</tr></table>';
 }
 
 /**
  * Label/value panel — the workhorse for booking details.
  *
- * @param array $rows  [ ['label' => …, 'value' => …, 'strong' => bool], … ]
+ * @param array $rows  [ ['label' => …, 'value' => …, 'strong' => bool, 'url' => …], … ]
+ *                     A row with 'url' renders its value as a link (e.g. a
+ *                     mailto: or wa.me contact the admin can act on).
  * @param array $args  tone: 'panel'|'brand'
  */
 function snapbook_email_facts($rows, $args = [])
@@ -363,11 +430,16 @@ function snapbook_email_facts($rows, $args = [])
         $strong = ! empty($row['strong']);
         $rule   = $i === $last ? 'none' : '1px solid ' . $p['rule'];
 
+        $value_html = esc_html($row['value']);
+        if (! empty($row['url'])) {
+            $value_html = '<a href="' . esc_url($row['url']) . '" style="color:' . esc_attr($p['accent_dk']) . ';text-decoration:underline;word-break:break-word;">' . $value_html . '</a>';
+        }
+
         $html .= '<tr>';
         $html .= '<td class="sb-stack" width="42%" valign="top" style="padding:12px 12px 12px 0;border-bottom:' . esc_attr($rule) . ';font-family:' . esc_attr($p['sans']) . ';font-size:11px;font-weight:700;line-height:1.5;letter-spacing:0.11em;text-transform:uppercase;color:' . esc_attr($p['muted']) . ';">'
             . esc_html($row['label']) . '</td>';
         $html .= '<td class="sb-stack sb-stack-v" align="right" valign="top" style="padding:12px 0;border-bottom:' . esc_attr($rule) . ';font-family:' . esc_attr($p['sans']) . ';font-size:' . ($strong ? '17px' : '15px') . ';font-weight:' . ($strong ? '700' : '500') . ';line-height:1.5;color:' . esc_attr($p['text']) . ';">'
-            . esc_html($row['value']) . '</td>';
+            . $value_html . '</td>';
         $html .= '</tr>';
     }
 
@@ -422,17 +494,19 @@ function snapbook_email_callout($args = [])
 ───────────────────────────────────────────────────────────── */
 
 /**
- * Booking facts for an order — what the customer actually booked.
+ * Booking facts rows for an order — what the customer actually booked.
+ * Shared by the HTML and plain-text builders.
  */
-function snapbook_email_booking_facts_html($order)
+function snapbook_email_booking_facts_rows($order)
 {
     if (! $order || ! function_exists('snapbook_get_order_booking_meta')) {
-        return '';
+        return [];
     }
 
     $meta = snapbook_get_order_booking_meta($order);
     $time = (string) $order->get_meta('_fpb_billing_event_time', true);
-    $rows = [
+
+    return [
         ['label' => __('Session', 'snapbook'), 'value' => $meta['session_type']],
         ['label' => __('Package', 'snapbook'), 'value' => $meta['package_name']],
         // Empty values are dropped by snapbook_email_facts(), so a booking
@@ -442,8 +516,182 @@ function snapbook_email_booking_facts_html($order)
         ['label' => __('Time', 'snapbook'), 'value' => $time],
         ['label' => __('Booking reference', 'snapbook'), 'value' => '#' . $order->get_order_number()],
     ];
+}
 
-    return snapbook_email_facts($rows);
+/**
+ * Booking facts for an order — what the customer actually booked.
+ */
+function snapbook_email_booking_facts_html($order)
+{
+    return snapbook_email_facts(snapbook_email_booking_facts_rows($order));
+}
+
+/**
+ * The money rows for an order: the full booking price, and — for a partial
+ * (deposit) booking — the deposit taken and the balance still due. Shared by
+ * the customer confirmation's "Order summary" and the admin payment breakdown
+ * so both read the same figures in the same branded label/value style.
+ */
+function snapbook_email_money_facts_rows($order)
+{
+    if (! $order || ! is_a($order, 'WC_Order')) {
+        return [];
+    }
+
+    $symbol = function_exists('get_woocommerce_currency_symbol')
+        ? get_woocommerce_currency_symbol($order->get_currency())
+        : '';
+    // WooCommerce returns the symbol as an HTML entity (e.g. &#2547;); decode
+    // it so the value is correct in both HTML and plain text after escaping.
+    $symbol = html_entity_decode((string) $symbol, ENT_QUOTES, 'UTF-8');
+    $money  = static function ($amount) use ($symbol) {
+        return $symbol . number_format((float) $amount, 2);
+    };
+
+    $rows    = [];
+    $figures = function_exists('snapbook_get_booking_figures') ? snapbook_get_booking_figures($order) : null;
+
+    if ($figures && ! empty($figures['total'])) {
+        $rows[] = ['label' => __('Booking total', 'snapbook'), 'value' => $money($figures['total']), 'strong' => true];
+        // Only a partial (deposit) booking has a balance worth breaking out.
+        if ($figures['balance'] > 0.01) {
+            $pct = function_exists('snapbook_format_pct') ? snapbook_format_pct($figures['pct']) : (string) $figures['pct'];
+            $rows[] = [
+                'label' => sprintf(/* translators: %s: deposit percentage */ __('Deposit paid (%s%%)', 'snapbook'), $pct),
+                'value' => $money($figures['deposit']),
+            ];
+            $rows[] = ['label' => __('Balance due', 'snapbook'), 'value' => $money($figures['balance']), 'strong' => true];
+        }
+    } else {
+        $rows[] = ['label' => __('Order total', 'snapbook'), 'value' => $money($order->get_total()), 'strong' => true];
+    }
+
+    return $rows;
+}
+
+/**
+ * Branded "Order summary" panel for the customer confirmation — the money
+ * breakdown in the same label/value design as the rest of the email.
+ */
+function snapbook_email_money_facts_html($order)
+{
+    return snapbook_email_facts(snapbook_email_money_facts_rows($order), ['tone' => 'brand']);
+}
+
+/**
+ * Admin-facing payment breakdown: the money rows above, plus the payment
+ * method, status and when the order was placed — the operational detail the
+ * customer's confirmation deliberately hides but the studio needs.
+ */
+function snapbook_email_admin_payment_facts_rows($order)
+{
+    $rows = snapbook_email_money_facts_rows($order);
+    if (empty($rows) || ! is_a($order, 'WC_Order')) {
+        return $rows;
+    }
+
+    $rows[] = ['label' => __('Payment method', 'snapbook'), 'value' => trim((string) $order->get_payment_method_title())];
+
+    $status = function_exists('wc_get_order_status_name')
+        ? wc_get_order_status_name($order->get_status())
+        : ucfirst((string) $order->get_status());
+    $rows[] = ['label' => __('Payment status', 'snapbook'), 'value' => $status];
+
+    $created = $order->get_date_created();
+    if ($created && function_exists('wc_format_datetime')) {
+        $rows[] = ['label' => __('Placed', 'snapbook'), 'value' => wc_format_datetime($created, get_option('date_format') . ', ' . get_option('time_format'))];
+    }
+
+    return $rows;
+}
+
+function snapbook_email_admin_payment_facts_html($order)
+{
+    return snapbook_email_facts(snapbook_email_admin_payment_facts_rows($order), ['tone' => 'brand']);
+}
+
+/**
+ * Digits-only international number for a wa.me link, or '' when there's nothing
+ * dial-able. Leading zeros are dropped so a stored "0…" local number doesn't
+ * produce a dead wa.me link.
+ */
+function snapbook_email_whatsapp_number($phone)
+{
+    $digits = preg_replace('/\D+/', '', (string) $phone);
+    $digits = ltrim((string) $digits, '0');
+    return strlen($digits) >= 6 ? $digits : '';
+}
+
+/**
+ * Admin-facing contact rows — the customer's details laid out for someone who
+ * needs to reach them and find them: a clickable email and WhatsApp, the hotel
+ * / place of stay, the street address, and the country on its own line. Used
+ * by the admin New Booking email (the customer's own confirmation keeps the
+ * lighter snapbook_email_customer_facts_rows list).
+ */
+function snapbook_email_admin_contact_rows($order)
+{
+    if (! $order || ! is_a($order, 'WC_Order')) {
+        return [];
+    }
+
+    $name  = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
+    $email = (string) $order->get_billing_email();
+    $phone = (string) $order->get_billing_phone();
+    $wa    = snapbook_email_whatsapp_number($phone);
+
+    // Street address without the country (shown separately below).
+    $address = trim(implode(', ', array_filter([
+        $order->get_billing_address_1(),
+        $order->get_billing_address_2(),
+        $order->get_billing_city(),
+        $order->get_billing_state(),
+        $order->get_billing_postcode(),
+    ], 'strlen')));
+
+    // Country name, not the two-letter code.
+    $country_code = (string) $order->get_billing_country();
+    $country      = $country_code;
+    if ($country_code !== '' && function_exists('WC') && WC() && WC()->countries) {
+        $names = WC()->countries->get_countries();
+        if (isset($names[$country_code])) {
+            $country = $names[$country_code];
+        }
+    }
+
+    $rows = [
+        ['label' => __('Name', 'snapbook'), 'value' => $name],
+        ['label' => __('Email', 'snapbook'), 'value' => $email, 'url' => $email !== '' ? 'mailto:' . $email : ''],
+        // The booking form's phone field is the customer's WhatsApp number.
+        ['label' => __('WhatsApp', 'snapbook'), 'value' => $phone, 'url' => $wa !== '' ? 'https://wa.me/' . $wa : ''],
+        ['label' => __('Guests', 'snapbook'), 'value' => (string) $order->get_meta('_fpb_billing_participants', true)],
+        ['label' => __('Hotel / place', 'snapbook'), 'value' => (string) $order->get_meta('_fpb_billing_hotel_place', true)],
+        ['label' => __('Room', 'snapbook'), 'value' => (string) $order->get_meta('_fpb_billing_room_number', true)],
+        ['label' => __('Stay period', 'snapbook'), 'value' => (string) $order->get_meta('_fpb_billing_stay_period', true)],
+        ['label' => __('Address', 'snapbook'), 'value' => $address],
+        ['label' => __('Country', 'snapbook'), 'value' => $country],
+    ];
+
+    // Admin-defined custom checkout fields, appended after the fixed rows.
+    if (function_exists('snapbook_get_custom_checkout_fields')) {
+        foreach (snapbook_get_custom_checkout_fields() as $key => $field) {
+            $key = (string) $key;
+            if ($key === '') {
+                continue;
+            }
+            $rows[] = [
+                'label' => (string) ($field['label'] ?? $key),
+                'value' => (string) $order->get_meta('_fpb_cf_' . $key, true),
+            ];
+        }
+    }
+
+    return $rows;
+}
+
+function snapbook_email_admin_contact_html($order)
+{
+    return snapbook_email_facts(snapbook_email_admin_contact_rows($order));
 }
 
 /**
@@ -506,12 +754,13 @@ function snapbook_email_order_table_html($order)
 }
 
 /**
- * The customer's own details, as submitted on the booking form.
+ * The customer's own details rows, as submitted on the booking form.
+ * Shared by the HTML and plain-text builders.
  */
-function snapbook_email_customer_facts_html($order)
+function snapbook_email_customer_facts_rows($order)
 {
     if (! $order) {
-        return '';
+        return [];
     }
 
     $name = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
@@ -548,7 +797,15 @@ function snapbook_email_customer_facts_html($order)
         }
     }
 
-    return snapbook_email_facts($rows);
+    return $rows;
+}
+
+/**
+ * The customer's own details, as submitted on the booking form.
+ */
+function snapbook_email_customer_facts_html($order)
+{
+    return snapbook_email_facts(snapbook_email_customer_facts_rows($order));
 }
 
 /* ─────────────────────────────────────────────────────────────

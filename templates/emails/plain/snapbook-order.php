@@ -21,6 +21,13 @@ echo "= " . wp_strip_all_tags($email_heading) . " =\n\n"; // phpcs:ignore WordPr
 echo snapbook_order_email_body_plain($order) . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 
 $snapbook_meta = snapbook_get_order_booking_meta($order);
+
+// Feature the session date up top, mirroring the HTML highlight card.
+$snapbook_pretty_date = snapbook_email_pretty_date($snapbook_meta['session_date']);
+if ($snapbook_pretty_date !== '') {
+    echo "\n" . strtoupper(wp_strip_all_tags(__('Your session date', 'snapbook'))) . ': ' . $snapbook_pretty_date . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+}
+
 $snapbook_facts = snapbook_email_plain_facts([
     ['label' => __('Session', 'snapbook'), 'value' => $snapbook_meta['session_type']],
     ['label' => __('Package', 'snapbook'), 'value' => $snapbook_meta['package_name']],
@@ -39,16 +46,20 @@ if ($snapbook_facts !== '') {
 ob_start();
 
 if (! empty($snapbook_settings['order_table'])) {
-    echo snapbook_email_plain_rule(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-    do_action('woocommerce_email_order_details', $order, $sent_to_admin, true, $email);
-    echo "\n";
-    do_action('woocommerce_email_order_meta', $order, $sent_to_admin, true, $email);
-    do_action('woocommerce_email_customer_details', $order, $sent_to_admin, true, $email);
-} else {
-    // Without the order table the after-table hook never fires from
-    // WooCommerce, so run it here — the deposit CTA must not vanish.
-    do_action('woocommerce_email_after_order_table', $order, $sent_to_admin, true, $email);
+    // Order summary — the branded money breakdown, mirroring the HTML panel.
+    $snapbook_money = snapbook_email_plain_facts(snapbook_email_money_facts_rows($order));
+    if ($snapbook_money !== '') {
+        echo snapbook_email_plain_rule(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+        echo strtoupper(wp_strip_all_tags(__('Order summary', 'snapbook'))) . "\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+        echo $snapbook_money; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+    }
 }
+
+// The remaining-balance CTA (and anything third parties append to the order
+// table). Fired once, regardless of the order-summary toggle, so a deposit
+// booking always tells the customer how to settle the rest.
+echo "\n";
+do_action('woocommerce_email_after_order_table', $order, $sent_to_admin, true, $email);
 
 // WooCommerce's plain templates leave prices as HTML entities (&#2547;);
 // decode them so the customer reads the currency symbol itself.

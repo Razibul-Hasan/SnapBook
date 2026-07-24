@@ -780,6 +780,11 @@ function snapbook_page_settings()
         update_option('fpb_order_email_heading', sanitize_text_field(wp_unslash($_POST['fpb_order_email_heading'] ?? '')));
         update_option('fpb_order_email_message', wp_kses_post(wp_unslash($_POST['fpb_order_email_message'] ?? '')));
         update_option('fpb_order_email_attachment_id', absint(wp_unslash($_POST['fpb_order_email_attachment_id'] ?? 0)));
+        update_option('fpb_admin_email_enable', absint(wp_unslash($_POST['fpb_admin_email_enable'] ?? 0)) === 1 ? 1 : 0);
+        update_option('fpb_admin_email_recipient', function_exists('snapbook_sanitize_email_list') ? snapbook_sanitize_email_list(wp_unslash($_POST['fpb_admin_email_recipient'] ?? '')) : ''); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+        update_option('fpb_admin_email_subject', sanitize_text_field(wp_unslash($_POST['fpb_admin_email_subject'] ?? '')));
+        update_option('fpb_admin_email_heading', sanitize_text_field(wp_unslash($_POST['fpb_admin_email_heading'] ?? '')));
+        update_option('fpb_admin_email_intro', wp_kses_post(wp_unslash($_POST['fpb_admin_email_intro'] ?? '')));
         if (function_exists('snapbook_sanitize_checkout_mode')) {
             update_option('fpb_checkout_mode', snapbook_sanitize_checkout_mode(sanitize_key(wp_unslash($_POST['fpb_checkout_mode'] ?? 'direct'))));
         }
@@ -814,6 +819,7 @@ function snapbook_page_settings()
     $balance_reminder_template = get_option('fpb_balance_reminder_template', snapbook_balance_reminder_default_template());
     $order_email = snapbook_get_order_email_settings();
     $order_email_file = snapbook_order_email_attachment_label($order_email['attachment_id']);
+    $admin_order_email = snapbook_get_admin_email_settings();
 
     snapbook_wrap_open('Settings', 'sb-settings', __('Configure checkout, payments, notifications, and form text.', 'snapbook'));
     echo '<form method="post" id="fpb-settings-form" class="fpb-settings-page">';
@@ -1131,6 +1137,55 @@ function snapbook_page_settings()
     echo '<p id="fpb-order-email-attachment-name" class="description"><strong>' . esc_html($order_email_file) . '</strong></p>';
     echo '</div>';
     echo '<p class="description">' . esc_html__('Attached to the booking confirmation email only (not to admin notifications or the balance reminder). A PDF such as your Terms of Service is typical.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '</tbody></table>';
+    echo '</div>';
+
+    // ── Admin order email ─
+    echo '<div class="card fpb-settings-card">';
+    echo '<h2>' . esc_html__('Admin Order Email', 'snapbook') . '</h2>';
+    echo '<p class="description">' . esc_html__('Customise the "new booking" notification you (the studio) receive. When turned on it replaces WooCommerce\'s plain New Order email with the same branded template your customers get — laid out to show the full booking at a glance: session and add-ons, the customer\'s contact details, the payment breakdown (deposit taken vs. balance still due), any note they left, and a button to open the order.', 'snapbook') . '</p>';
+    echo '<input type="hidden" name="fpb_admin_email_enable" value="0">';
+    echo '<table class="form-table" role="presentation"><tbody>';
+
+    echo '<tr><th scope="row">' . esc_html__('Custom email', 'snapbook') . '</th><td>';
+    echo '<label><input type="checkbox" name="fpb_admin_email_enable" value="1" ' . checked(1, (int) $admin_order_email['enable'], false) . '> ' . esc_html__('Use SnapBook\'s branded email for the admin New Order notification', 'snapbook') . '</label>';
+    echo '<p class="description">' . esc_html__('Applies to booking orders only. Other WooCommerce orders keep the default email. WooCommerce sends this once payment is placed.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row"><label for="fpb-admin-email-recipient">' . esc_html__('Send to', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-admin-email-recipient" class="large-text" type="text" name="fpb_admin_email_recipient" value="' . esc_attr($admin_order_email['recipient']) . '" placeholder="' . esc_attr(get_option('admin_email')) . '">';
+    echo '<p class="description">' . esc_html__('Who receives it. Separate several addresses with commas. Leave blank to use WooCommerce\'s own New Order recipient.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row"><label for="fpb-admin-email-subject">' . esc_html__('Subject', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-admin-email-subject" class="large-text" type="text" name="fpb_admin_email_subject" value="' . esc_attr($admin_order_email['subject']) . '">';
+    echo '<p class="description">' . esc_html__('Leave blank to keep the WooCommerce subject.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row"><label for="fpb-admin-email-heading">' . esc_html__('Heading', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-admin-email-heading" class="regular-text" type="text" name="fpb_admin_email_heading" value="' . esc_attr($admin_order_email['heading']) . '">';
+    echo '<p class="description">' . esc_html__('The large title at the top of the email. Leave blank to keep the WooCommerce heading.', 'snapbook') . '</p>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row"><label for="fpb_admin_email_intro">' . esc_html__('Intro note', 'snapbook') . '</label></th><td>';
+    // Editor ID uses underscores — wp_editor/TinyMCE misbehave with hyphens.
+    wp_editor(
+        $admin_order_email['intro'],
+        'fpb_admin_email_intro',
+        [
+            'textarea_name' => 'fpb_admin_email_intro',
+            'textarea_rows' => 6,
+            'media_buttons' => false,
+            'teeny'         => true,
+            'quicktags'     => true,
+        ]
+    );
+    echo '<p class="description"><strong>' . esc_html__('Placeholders', 'snapbook') . ':</strong> ';
+    echo '<code>{customer_name}</code> <code>{first_name}</code> <code>{package_name}</code> <code>{addons}</code> <code>{session_type}</code> <code>{session_date}</code> <code>{order_id}</code> <code>{total}</code> <code>{site_name}</code>';
+    echo '</p>';
+    echo '<p class="description">' . esc_html__('Shown above the booking details. Leave blank for none.', 'snapbook') . '</p>';
     echo '</td></tr>';
 
     echo '</tbody></table>';

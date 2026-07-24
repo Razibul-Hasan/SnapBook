@@ -724,6 +724,54 @@ function snapbook_order_email_attachment_label($attachment_id)
     return basename($path);
 }
 
+/**
+ * Defaults for the admin "New booking" notification (SnapBook → Settings →
+ * Admin Order Email). Like the customer order email, this replaces
+ * WooCommerce's plain New Order email with the branded SnapBook shell — but
+ * with the extra detail an admin needs to action a booking (payment
+ * breakdown, customer contact, and a manage-order link). Ships disabled so
+ * updating the plugin never changes the email a live studio receives.
+ */
+function snapbook_admin_email_defaults()
+{
+    return [
+        'enable'      => 0,
+        'recipient'   => '',
+        'subject'     => __('New booking {order_id} — {package_name}', 'snapbook'),
+        'heading'     => __('New booking received', 'snapbook'),
+        'intro'       => __('<p>A new booking has just come in. The full details are below.</p>', 'snapbook'),
+    ];
+}
+
+function snapbook_get_admin_email_settings()
+{
+    $d = snapbook_admin_email_defaults();
+    return [
+        'enable'    => (int) get_option('fpb_admin_email_enable', $d['enable']),
+        'recipient' => (string) get_option('fpb_admin_email_recipient', $d['recipient']),
+        'subject'   => (string) get_option('fpb_admin_email_subject', $d['subject']),
+        'heading'   => (string) get_option('fpb_admin_email_heading', $d['heading']),
+        'intro'     => (string) get_option('fpb_admin_email_intro', $d['intro']),
+    ];
+}
+
+/**
+ * Sanitize a comma-separated list of recipient emails down to the valid ones,
+ * rejoined with ", ". Empty when nothing valid was supplied, so the caller can
+ * fall back to WooCommerce's own recipient.
+ */
+function snapbook_sanitize_email_list($raw)
+{
+    $out = [];
+    foreach (explode(',', (string) $raw) as $email) {
+        $email = sanitize_email(trim($email));
+        if ($email !== '' && ! in_array($email, $out, true)) {
+            $out[] = $email;
+        }
+    }
+    return implode(', ', $out);
+}
+
 function snapbook_frontend_sidebar_defaults()
 {
     return [

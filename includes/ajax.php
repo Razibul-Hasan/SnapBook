@@ -394,6 +394,12 @@ function snapbook_admin_save_settings()
     update_option('fpb_order_email_message', wp_kses_post(wp_unslash($_POST['fpb_order_email_message'] ?? '')));
     update_option('fpb_order_email_attachment_id', absint(wp_unslash($_POST['fpb_order_email_attachment_id'] ?? 0)));
 
+    update_option('fpb_admin_email_enable', absint(wp_unslash($_POST['fpb_admin_email_enable'] ?? 0)) === 1 ? 1 : 0);
+    update_option('fpb_admin_email_recipient', function_exists('snapbook_sanitize_email_list') ? snapbook_sanitize_email_list(wp_unslash($_POST['fpb_admin_email_recipient'] ?? '')) : ''); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+    update_option('fpb_admin_email_subject', sanitize_text_field(wp_unslash($_POST['fpb_admin_email_subject'] ?? '')));
+    update_option('fpb_admin_email_heading', sanitize_text_field(wp_unslash($_POST['fpb_admin_email_heading'] ?? '')));
+    update_option('fpb_admin_email_intro', wp_kses_post(wp_unslash($_POST['fpb_admin_email_intro'] ?? '')));
+
     if (function_exists('snapbook_sanitize_checkout_mode')) {
         update_option('fpb_checkout_mode', snapbook_sanitize_checkout_mode(sanitize_key(wp_unslash($_POST['fpb_checkout_mode'] ?? 'direct'))));
     }

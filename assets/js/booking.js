@@ -408,6 +408,7 @@
     grid.innerHTML = visible
       .map((a) => {
         const pkgOnly = addonPackageIds(a).length > 0;
+        const icon = iconHtml(a.emoji);
         return (
           '<label class="fpb-addon-card" for="fpb-addon-' +
           a.id +
@@ -417,9 +418,7 @@
           '" id="fpb-addon-' +
           a.id +
           '">' +
-          '<span class="fpb-addon-em">' +
-          (iconHtml(a.emoji) || "•") +
-          "</span>" +
+          (icon ? '<span class="fpb-addon-em">' + icon + "</span>" : "") +
           '<span class="fpb-addon-info">' +
           '<span class="fpb-addon-name">' +
           escHtml(a.name) +

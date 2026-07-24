@@ -26,18 +26,25 @@ if (! defined('ABSPATH')) {
 $snapbook_settings = snapbook_get_order_email_settings();
 $snapbook_content  = '';
 
-$snapbook_status_label = $order->is_paid()
-    ? __('Booking confirmed', 'snapbook')
-    : __('Booking received', 'snapbook');
+$snapbook_meta = snapbook_get_order_booking_meta($order);
 
-$snapbook_content .= snapbook_email_pill($snapbook_status_label);
+// Eye-catching hero — the heading, centered.
+$snapbook_content .= '<div style="text-align:center;">';
 $snapbook_content .= snapbook_email_title(wp_strip_all_tags($email_heading));
+$snapbook_content .= '</div>';
 
 // The admin's message. Sanitised with wp_kses_post on save and again when
 // built, so it is safe rich text; the wrapper only adds email-safe styling.
 $snapbook_content .= snapbook_email_rich_text(snapbook_order_email_body_html($order));
 
-// What was booked — the detail customers actually look for.
+// Feature the session date — the one fact the customer looks for first.
+$snapbook_pretty_date = snapbook_email_pretty_date($snapbook_meta['session_date']);
+if ($snapbook_pretty_date !== '') {
+    $snapbook_date_sub = trim(implode('  ·  ', array_filter([$snapbook_meta['session_type'], $snapbook_meta['package_name']])));
+    $snapbook_content .= snapbook_email_highlight(__('Your session date', 'snapbook'), $snapbook_pretty_date, $snapbook_date_sub);
+}
+
+// What was booked — the finer detail beneath the headline date.
 $snapbook_booking_facts = snapbook_email_booking_facts_html($order);
 if ($snapbook_booking_facts !== '') {
     $snapbook_content .= snapbook_email_divider(24);
@@ -48,14 +55,9 @@ if ($snapbook_booking_facts !== '') {
 if (! empty($snapbook_settings['order_table'])) {
     $snapbook_content .= snapbook_email_divider(24);
     $snapbook_content .= snapbook_email_section_label(__('Order summary', 'snapbook'));
-    $snapbook_content .= snapbook_email_order_table_html($order);
-
-    $snapbook_customer_facts = snapbook_email_customer_facts_html($order);
-    if ($snapbook_customer_facts !== '') {
-        $snapbook_content .= snapbook_email_divider(24);
-        $snapbook_content .= snapbook_email_section_label(__('Your details', 'snapbook'));
-        $snapbook_content .= $snapbook_customer_facts;
-    }
+    // Branded totals panel (booking total / deposit / balance) in the same
+    // label/value design as the rest of the email, matching the admin notice.
+    $snapbook_content .= snapbook_email_money_facts_html($order);
 }
 
 // The remaining-balance CTA and anything third parties append to the order
@@ -72,8 +74,6 @@ if (! empty($additional_content)) {
     $snapbook_content .= snapbook_email_divider(24);
     $snapbook_content .= snapbook_email_rich_text(wp_kses_post(wpautop(wptexturize($additional_content))));
 }
-
-$snapbook_meta = snapbook_get_order_booking_meta($order);
 
 // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Components escape their own data.
 echo snapbook_email_wrap($snapbook_content, [
