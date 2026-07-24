@@ -4,7 +4,7 @@ Tags: booking, photography, woocommerce, appointment, calendar
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,9 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 
 == Changelog ==
 
+= 1.1.1 =
+* The step indicator and the booking form now share a single background card for a cleaner, more unified look.
+
 = 1.1.0 =
 * New optional **Contract step** between Details and Payment: show your Terms and Conditions in a scrollable panel and require the client to accept them before paying.
 * The contract step is fully editable under **SnapBook &rarr; Frontend** — toggle it on or off, name the step, write the agreement in the visual editor, and set the acceptance wording.
@@ -103,6 +106,9 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 * Security hardening throughout: nonce verification, output escaping, and input sanitisation.
 
 == Upgrade Notice ==
+
+= 1.1.1 =
+Visual polish only: the step indicator and booking form now sit in one card. No settings or behaviour change.
 
 = 1.1.0 =
 Adds an optional Terms and Conditions step to the booking form. Nothing changes on existing sites until you turn it on under SnapBook &rarr; Frontend.

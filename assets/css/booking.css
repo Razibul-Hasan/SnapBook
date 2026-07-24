@@ -53,12 +53,13 @@
   }
 }
 
-/* ── Step indicator ── */
+/* ── Step indicator ──
+   Sits as the header row inside the unified .fpb-card, sharing one
+   background with the step content below it. */
 .fpb-wrap .fpb-steps-bar {
   display: flex;
   border-bottom: 1px solid var(--fpb-border);
-  max-width: 800px;
-  margin: 0 auto 1.8rem;
+  padding: 1.3rem 1.8rem 0;
 }
 
 .fpb-wrap .fpb-stab {
@@ -89,17 +90,17 @@
 }
 
 .fpb-wrap .fpb-sci {
-  width: 21px;
-  height: 21px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--fpb-border);
   color: var(--fpb-muted);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   font-weight: 500;
-  margin: 0 auto 0.28rem;
+  margin: 0 auto 0.38rem;
   transition: all 0.3s;
 }
 
@@ -116,8 +117,20 @@
 
 .fpb-wrap .fpb-stab.fpb-done .fpb-sci::after {
   content: "\2713";
-  font-size: 0.68rem;
+  font-size: 0.78rem;
   line-height: 1;
+}
+
+/* ── Card container ──
+   One background panel wrapping the step indicator and the active step,
+   so the steps row and the booking content read as a single card. */
+.fpb-wrap .fpb-card {
+  background: var(--fpb-w);
+  border: 1px solid var(--fpb-border);
+  border-radius: 10px;
+  box-shadow: var(--fpb-sh2);
+  max-width: 800px;
+  margin: 0 auto;
 }
 
 /* ── Step panels ── */
@@ -131,14 +144,10 @@
   animation: fpb-fadein 0.3s ease;
 }
 
+/* The card now supplies the background/border/shadow; each step's inner
+   block only carries the content padding. */
 .fpb-wrap .fpb-step-inner {
-  background: var(--fpb-w);
-  border: 1px solid var(--fpb-border);
-  border-radius: 8px;
   padding: 2rem 1.8rem;
-  box-shadow: var(--fpb-sh2);
-  max-width: 800px;
-  margin: 0 auto;
 }
 
 /* ── Titles ── */
@@ -1528,6 +1537,10 @@
   .fpb-wrap .fpb-step-inner {
     padding: 1.6rem 1.25rem;
   }
+
+  .fpb-wrap .fpb-steps-bar {
+    padding: 1.1rem 1.25rem 0;
+  }
 }
 
 @media (max-width: 680px) {
@@ -1567,9 +1580,16 @@
     font-size: 0.52rem;
   }
 
+  .fpb-wrap .fpb-steps-bar {
+    padding: 0.9rem 1rem 0;
+  }
+
+  .fpb-wrap .fpb-card {
+    border-radius: 8px;
+  }
+
   .fpb-wrap .fpb-step-inner {
     padding: 1.25rem 1rem;
-    border-radius: 6px;
   }
 
   .fpb-wrap .fpb-title {
@@ -1685,7 +1705,7 @@
 .fpb-wrap .fpb-layout {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
-  gap: 1.6rem;
+  gap: 2rem;
   align-items: start;
   max-width: 1140px;
   margin: 0 auto;
@@ -1707,11 +1727,8 @@
 
 /* With a sidebar present the wizard fills its column rather than the
    stand-alone 800px centered width. */
-.fpb-wrap:not(.fpb-no-sidebar) .fpb-main .fpb-steps-bar,
-.fpb-wrap:not(.fpb-no-sidebar) .fpb-main .fpb-step-inner {
+.fpb-wrap:not(.fpb-no-sidebar) .fpb-main .fpb-card {
   max-width: none;
-  margin-left: 0;
-  margin-right: 0;
 }
 
 .fpb-wrap.fpb-no-sidebar .fpb-layout {

@@ -916,6 +916,7 @@ function snapbook_render_shortcode($opts = [])
     <div class="<?php echo esc_attr($wrap_class); ?>"<?php echo $preselect !== '' ? ' data-package="' . esc_attr($preselect) . '"' : ''; ?>>
       <div class="fpb-layout">
         <div class="fpb-main">
+        <div class="fpb-card">
 
         <!-- Step indicator -->
         <div class="fpb-steps-bar" id="fpb-steps">
@@ -1102,6 +1103,7 @@ function snapbook_render_shortcode($opts = [])
                 </div>
             </div>
         </div>
+        </div><!-- .fpb-card -->
         </div><!-- .fpb-main -->
         <?php echo $sidebar_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from escaped parts in snapbook_render_frontend_sidebar() ?>
       </div><!-- .fpb-layout -->
