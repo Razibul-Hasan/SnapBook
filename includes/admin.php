@@ -791,6 +791,18 @@ function snapbook_page_settings()
         if (function_exists('snapbook_sanitize_checkout_field_config')) {
             update_option('fpb_checkout_form_fields', snapbook_sanitize_checkout_field_config($_POST)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
         }
+        // Each field is only written when the settings screen actually rendered
+        // it: the sync toggle exists only once connected, and the key fields are
+        // hidden while the credentials come from wp-config constants.
+        if (isset($_POST['fpb_gcal_enabled'])) {
+            update_option('fpb_gcal_enabled', absint(wp_unslash($_POST['fpb_gcal_enabled'])) === 1 ? 1 : 0);
+        }
+        if (isset($_POST['fpb_gcal_client_id'])) {
+            update_option('fpb_gcal_client_id', sanitize_text_field(wp_unslash($_POST['fpb_gcal_client_id'])));
+        }
+        if (isset($_POST['fpb_gcal_client_secret'])) {
+            update_option('fpb_gcal_client_secret', sanitize_text_field(wp_unslash($_POST['fpb_gcal_client_secret'])));
+        }
         if (function_exists('snapbook_default_theme_colors')) {
             $theme_defaults = snapbook_default_theme_colors();
             update_option('fpb_theme_primary', sanitize_hex_color(wp_unslash($_POST['fpb_theme_primary'] ?? '')) ?: $theme_defaults['primary']);
@@ -821,7 +833,38 @@ function snapbook_page_settings()
     $order_email_file = snapbook_order_email_attachment_label($order_email['attachment_id']);
     $admin_order_email = snapbook_get_admin_email_settings();
 
+    $gcal_connected   = function_exists('snapbook_gcal_is_connected') && snapbook_gcal_is_connected();
+    $gcal_conn        = function_exists('snapbook_gcal_get_connection') ? snapbook_gcal_get_connection() : [];
+    $gcal_enabled     = (int) get_option('fpb_gcal_enabled', 1);
+    $gcal_error       = get_option('fpb_gcal_last_error', '');
+    $gcal_has_creds   = function_exists('snapbook_gcal_has_credentials') && snapbook_gcal_has_credentials();
+    $gcal_creds_const = function_exists('snapbook_gcal_creds_from_constant') && snapbook_gcal_creds_from_constant();
+    $gcal_client_id   = get_option('fpb_gcal_client_id', '');
+    $gcal_client_sec  = get_option('fpb_gcal_client_secret', '');
+    $gcal_redirect    = function_exists('snapbook_gcal_redirect_uri') ? snapbook_gcal_redirect_uri() : '';
+
     snapbook_wrap_open('Settings', 'sb-settings', __('Configure checkout, payments, notifications, and form text.', 'snapbook'));
+
+    // Status feedback after returning from the Google connect flow.
+    $gcal_notice = isset($_GET['sb_gcal']) ? sanitize_key(wp_unslash($_GET['sb_gcal'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+    if ($gcal_notice === 'connected') {
+        echo '<div class="notice notice-success is-dismissible inline"><p>' . esc_html__('Google Calendar connected. New bookings will be added automatically.', 'snapbook') . '</p></div>';
+    } elseif ($gcal_notice === 'disconnected') {
+        echo '<div class="notice notice-info is-dismissible inline"><p>' . esc_html__('Google Calendar disconnected.', 'snapbook') . '</p></div>';
+    } elseif ($gcal_notice === 'error') {
+        $gcal_reason = isset($_GET['reason']) ? sanitize_key(wp_unslash($_GET['reason'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        $gcal_reasons = [
+            'denied'        => __('Connection cancelled on the Google consent screen.', 'snapbook'),
+            'access_denied' => __('Google blocked the sign-in (Error 403: access_denied). Your Google app is still in “Testing”, so only approved testers can use it. In Google Cloud Console open Google Auth Platform → Audience and either click Publish app, or add this Google account under Test users. Then connect again.', 'snapbook'),
+            'state'         => __('The connection could not be verified. Please try connecting again.', 'snapbook'),
+            'network'       => __('Could not reach Google. Please try again in a moment.', 'snapbook'),
+            'exchange'      => __('Google rejected the connection — check the redirect URI is registered and the Client Secret is correct, then try again.', 'snapbook'),
+            'nocreds'       => __('Enter your Google Client ID and Client Secret below and click Save All Settings first, then Connect.', 'snapbook'),
+        ];
+        $gcal_reason_msg = $gcal_reasons[$gcal_reason] ?? __('Google Calendar connection failed. Please try again.', 'snapbook');
+        echo '<div class="notice notice-error is-dismissible inline"><p>' . esc_html($gcal_reason_msg) . '</p></div>';
+    }
+
     echo '<form method="post" id="fpb-settings-form" class="fpb-settings-page">';
     wp_nonce_field('snapbook_settings', 'snapbook_settings_nonce');
 
@@ -1189,6 +1232,101 @@ function snapbook_page_settings()
     echo '</td></tr>';
 
     echo '</tbody></table>';
+    echo '</div>';
+
+    // ── Google Calendar ─
+    echo '<div class="card fpb-settings-card" id="fpb-gcal">';
+    echo '<h2>' . esc_html__('Google Calendar', 'snapbook') . '</h2>';
+    echo '<p class="description">' . esc_html__('Automatically add every paid booking to your Google Calendar — the package and order number as the title, the client invited as a guest, their location on the event, an alert 2 hours before, and the session and client contact details in the notes. Connect once with a single click; there are no access tokens to copy.', 'snapbook') . '</p>';
+
+    if ($gcal_connected) {
+        $gcal_email     = isset($gcal_conn['email']) ? $gcal_conn['email'] : '';
+        $disconnect_url = wp_nonce_url(admin_url('admin-post.php?action=snapbook_gcal_disconnect'), 'snapbook_gcal_disconnect');
+
+        echo '<div class="fpb-gcal-panel is-connected">';
+        echo '<div class="fpb-gcal-status">';
+        echo '<span class="fpb-gcal-dot is-on" aria-hidden="true"></span>';
+        echo '<div class="fpb-gcal-status-text"><strong>' . esc_html__('Connected', 'snapbook') . '</strong>';
+        if ($gcal_email !== '') {
+            echo '<span>' . esc_html($gcal_email) . '</span>';
+        }
+        echo '</div>';
+        echo '<a class="button fpb-gcal-disconnect" href="' . esc_url($disconnect_url) . '">' . esc_html__('Disconnect', 'snapbook') . '</a>';
+        echo '</div>';
+        if ($gcal_error !== '') {
+            echo '<p class="fpb-gcal-warn"><span class="dashicons dashicons-warning" aria-hidden="true"></span> ' . esc_html($gcal_error) . '</p>';
+        }
+        echo '</div>';
+
+        echo '<table class="form-table" role="presentation"><tbody>';
+        echo '<tr><th scope="row">' . esc_html__('Sync new bookings', 'snapbook') . '</th><td>';
+        echo '<input type="hidden" name="fpb_gcal_enabled" value="0">';
+        echo '<label class="fpb-toggle"><input type="checkbox" name="fpb_gcal_enabled" value="1" ' . checked(1, $gcal_enabled, false) . '><span class="fpb-toggle-track" aria-hidden="true"></span><span class="fpb-toggle-text">' . esc_html__('Add new paid bookings to Google Calendar', 'snapbook') . '<small>' . esc_html__('Turn off to pause syncing without disconnecting.', 'snapbook') . '</small></span></label>';
+        echo '</td></tr>';
+        echo '<tr><th scope="row">' . esc_html__('Test connection', 'snapbook') . '</th><td>';
+        echo '<button type="button" class="button button-secondary" id="fpb-gcal-test">' . esc_html__('Send a test event', 'snapbook') . '</button>';
+        echo '<span id="fpb-gcal-test-msg" class="fpb-gcal-test-msg" aria-live="polite"></span>';
+        echo '<p class="description">' . esc_html__('Adds a sample event to today on your calendar to confirm everything works.', 'snapbook') . '</p>';
+        echo '</td></tr>';
+        echo '</tbody></table>';
+    } else {
+        $connect_url = wp_nonce_url(admin_url('admin-post.php?action=snapbook_gcal_connect'), 'snapbook_gcal_connect');
+        echo '<div class="fpb-gcal-panel is-disconnected">';
+        echo '<div class="fpb-gcal-status">';
+        echo '<span class="fpb-gcal-dot" aria-hidden="true"></span>';
+        echo '<div class="fpb-gcal-status-text"><strong>' . esc_html__('Not connected', 'snapbook') . '</strong><span>' . esc_html__('Bookings are not being added to Google Calendar yet.', 'snapbook') . '</span></div>';
+        echo '</div>';
+        // Static Google "G" mark (literal SVG — no dynamic data to escape).
+        echo '<a class="fpb-gcal-connect' . ($gcal_has_creds ? '' : ' is-disabled') . '" href="' . esc_url($connect_url) . '">';
+        echo '<span class="fpb-gcal-g" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></span>';
+        echo '<span>' . esc_html__('Connect with Google', 'snapbook') . '</span>';
+        echo '</a>';
+        echo '</div>';
+        if ($gcal_error !== '') {
+            echo '<p class="fpb-gcal-warn"><span class="dashicons dashicons-warning" aria-hidden="true"></span> ' . esc_html($gcal_error) . '</p>';
+        }
+
+        // Google app credentials, saved right here in the backend. Hidden when
+        // set via wp-config constants (nothing to edit then).
+        if ($gcal_creds_const) {
+            echo '<p class="fpb-gcal-hint"><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span> ' . esc_html__('Your Google app is set in wp-config.php. Just click Connect with Google.', 'snapbook') . '</p>';
+        } else {
+            echo '<table class="form-table fpb-gcal-creds" role="presentation"><tbody>';
+            echo '<tr><th scope="row"><label for="fpb-gcal-client-id">' . esc_html__('Google Client ID', 'snapbook') . '</label></th><td>';
+            echo '<input id="fpb-gcal-client-id" class="large-text code" type="text" name="fpb_gcal_client_id" value="' . esc_attr($gcal_client_id) . '" autocomplete="off" spellcheck="false" placeholder="1234567890-abc.apps.googleusercontent.com">';
+            echo '</td></tr>';
+            echo '<tr><th scope="row"><label for="fpb-gcal-client-secret">' . esc_html__('Google Client Secret', 'snapbook') . '</label></th><td>';
+            echo '<input id="fpb-gcal-client-secret" class="large-text code" type="password" name="fpb_gcal_client_secret" value="' . esc_attr($gcal_client_sec) . '" autocomplete="off" spellcheck="false" placeholder="GOCSPX-…">';
+            echo '<p class="description">' . esc_html__('Paste both, click Save All Settings, then Connect with Google. Nothing else to edit.', 'snapbook') . '</p>';
+            echo '</td></tr>';
+            echo '</tbody></table>';
+        }
+
+        // Setup checklist — shown whichever way the credentials are supplied,
+        // because steps 3 and 4 are configured on the Google app itself and are
+        // the usual cause of a refused connection.
+        echo '<div class="fpb-gcal-setupnote">';
+        echo '<p><span class="dashicons dashicons-info-outline" aria-hidden="true"></span> ' . sprintf(
+            /* translators: %s: Google Cloud Console link */
+            esc_html__('Set up once in Google Cloud Console (about 5 minutes) — %s:', 'snapbook'),
+            '<a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer">' . esc_html__('open Google Cloud Console', 'snapbook') . '</a>'
+        ) . '</p>';
+        echo '<ol class="fpb-gcal-steps">';
+        echo '<li>' . esc_html__('Create an OAuth client of type "Web application" and paste its Client ID and Client Secret above.', 'snapbook') . '</li>';
+        echo '<li>' . esc_html__('Add this exact redirect URI to that client (click the box below to copy).', 'snapbook') . '</li>';
+        echo '<li>' . esc_html__('In APIs & Services → Library, enable the Google Calendar API for the project.', 'snapbook') . '</li>';
+        echo '<li>' . wp_kses(
+            __('In <strong>Google Auth Platform → Audience</strong>, click <strong>Publish app</strong>. Left in "Testing", Google blocks sign-in with <em>Error 403: access_denied</em> for anyone not listed under Test users, and the connection expires every 7 days.', 'snapbook'),
+            ['strong' => [], 'em' => []]
+        ) . '</li>';
+        echo '</ol>';
+        echo '<p class="description">' . esc_html__('Redirect URI for this site (click to copy):', 'snapbook') . '</p>';
+        echo '<input type="text" class="large-text code fpb-gcal-redirect" readonly value="' . esc_attr($gcal_redirect) . '" onclick="this.select();document.execCommand(&quot;copy&quot;);">';
+        if (0 !== strpos($gcal_redirect, 'https://') && ! preg_match('#^https?://(localhost|127\.0\.0\.1)#', $gcal_redirect)) {
+            echo '<p class="description fpb-gcal-httpsnote"><span class="dashicons dashicons-warning" aria-hidden="true"></span> ' . esc_html__('Google needs an https site (or localhost). On this plain-http address the connection will be refused — connect from the live https site.', 'snapbook') . '</p>';
+        }
+        echo '</div>';
+    }
     echo '</div>';
 
     echo '<p class="submit">';

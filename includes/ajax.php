@@ -407,6 +407,19 @@ function snapbook_admin_save_settings()
         update_option('fpb_checkout_form_fields', snapbook_sanitize_checkout_field_config($_POST)); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
     }
 
+    // Google Calendar. Each field is only written when the settings screen
+    // actually rendered it: the sync toggle exists only once connected, and the
+    // key fields are hidden when the credentials come from wp-config constants.
+    if (isset($_POST['fpb_gcal_enabled'])) {
+        update_option('fpb_gcal_enabled', absint(wp_unslash($_POST['fpb_gcal_enabled'])) === 1 ? 1 : 0);
+    }
+    if (isset($_POST['fpb_gcal_client_id'])) {
+        update_option('fpb_gcal_client_id', sanitize_text_field(wp_unslash($_POST['fpb_gcal_client_id'])));
+    }
+    if (isset($_POST['fpb_gcal_client_secret'])) {
+        update_option('fpb_gcal_client_secret', sanitize_text_field(wp_unslash($_POST['fpb_gcal_client_secret'])));
+    }
+
     wp_send_json_success();
 }
 

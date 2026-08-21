@@ -4,7 +4,7 @@ Tags: booking, photography, woocommerce, appointment, calendar
 Requires at least: 6.0
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.2.0
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -85,6 +85,16 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 
 == Changelog ==
 
+= 1.3.0 =
+* New **Google Calendar** integration (SnapBook &rarr; Settings): every paid booking is added to your calendar automatically.
+* Event title is the package plus the WooCommerce order number — for example "Beach shooting #34182". The client's chosen location becomes the event location, and the notes carry the package, add-ons, session time and the client's name, phone and email.
+* The client is added as a guest, so they get the Google invitation and the shoot appears in their own calendar.
+* Every event gets an alert 2 hours before the session (filterable via `snapbook_gcal_reminder_minutes`).
+* One-click "Connect with Google" — paste your Google app's Client ID and Secret once, then connect and approve. No access tokens to copy and nothing to edit in any file.
+* A sync toggle to pause without disconnecting, a "Send a test event" button, and a setup checklist covering the redirect URI, enabling the Calendar API, and publishing the Google app.
+* Events use the booking's time when one was given (60 minutes by default, filterable) and fall back to an all-day event otherwise.
+* Bookings now store the created event's ID, so a booking is never added to the calendar twice.
+
 = 1.2.0 =
 * New **Admin Order Email** setting (SnapBook → Settings): send yourself a branded "new booking" notification using the same template your customers get, instead of WooCommerce's plain New Order email.
 * The admin email lays out the full booking at a glance — session and add-ons, a payment breakdown (deposit taken vs. balance still due), and any note the customer left.
@@ -113,6 +123,9 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 * Security hardening throughout: nonce verification, output escaping, and input sanitisation.
 
 == Upgrade Notice ==
+
+= 1.3.0 =
+Adds Google Calendar sync for paid bookings. Optional — connect your Google account under SnapBook → Settings → Google Calendar to switch it on.
 
 = 1.2.0 =
 Adds a branded admin "new booking" email with the full booking details. Off by default — enable it under SnapBook → Settings → Admin Order Email.

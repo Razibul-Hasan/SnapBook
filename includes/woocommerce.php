@@ -619,6 +619,8 @@ function snapbook_on_paid_order($order_id)
             'status'        => $booking_status,
         ]);
 
+        $booking_id = (int) $wpdb->insert_id;
+
         // Mark session date as booked
         if ($session_date && preg_match('/^\d{4}-\d{2}-\d{2}$/', $session_date)) {
             $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$pfx}dates WHERE date_str=%s", $session_date)); // phpcs:ignore
@@ -634,6 +636,16 @@ function snapbook_on_paid_order($order_id)
             if ($due_order_id > 0) {
                 snapbook_schedule_balance_reminder($order_id);
             }
+        }
+
+        /**
+         * A paid booking row has been saved. Google Calendar sync listens here;
+         * fired last so the booking and its date slot are fully written first.
+         *
+         * @param int $booking_id Row id in the {prefix}fpb_bookings table.
+         */
+        if ($booking_id > 0) {
+            do_action('snapbook_booking_created', $booking_id);
         }
     }
 }

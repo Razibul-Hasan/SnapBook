@@ -4,7 +4,7 @@
  * Plugin Name:  SnapBook
  * Plugin URI:   https://bestwebexpert.com
  * Description:  Multi-step photography booking with backend management and WooCommerce checkout. Shortcode: [snapbook]
- * Version:      1.2.0
+ * Version:      1.3.0
  * Author:       Razibul Hasan
  * Author URI:   https://bestwebexpert.com
  * Text Domain:  snapbook
@@ -18,7 +18,7 @@
 
 defined('ABSPATH') || exit;
 
-define('SNAPBOOK_VER', '1.2.0');
+define('SNAPBOOK_VER', '1.3.0');
 define('SNAPBOOK_URL', plugin_dir_url(__FILE__));
 define('SNAPBOOK_DIR', plugin_dir_path(__FILE__));
 
@@ -230,6 +230,9 @@ function snapbook_load()
     require_once SNAPBOOK_DIR . 'includes/shortcode.php';
     // Shared email design system — needed with or without WooCommerce.
     require_once SNAPBOOK_DIR . 'includes/emails.php';
+    // Google Calendar sync — the OAuth screens live in wp-admin, so this loads
+    // with or without WooCommerce.
+    require_once SNAPBOOK_DIR . 'includes/google-calendar.php';
     if (class_exists('WooCommerce')) {
         require_once SNAPBOOK_DIR . 'includes/woocommerce.php';
     }

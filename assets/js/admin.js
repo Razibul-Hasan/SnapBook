@@ -947,6 +947,19 @@
     });
   }
 
+  // "Connect with Google" is rendered disabled until the Google app keys are
+  // stored. The settings form saves over AJAX without reloading, so the link
+  // has to be re-enabled here or it stays dead until the admin refreshes.
+  function refreshGcalConnectState() {
+    const link = document.querySelector(".fpb-gcal-connect");
+    const id = document.getElementById("fpb-gcal-client-id");
+    const secret = document.getElementById("fpb-gcal-client-secret");
+    if (!link || !id || !secret) return;
+
+    const ready = id.value.trim() !== "" && secret.value.trim() !== "";
+    link.classList.toggle("is-disabled", !ready);
+  }
+
   function bindSettingsForm() {
     const form = document.getElementById("fpb-settings-form");
     if (!form) return;
@@ -970,6 +983,7 @@
           }
 
           setMsg("fpb-settings-msg", "Settings saved.", true);
+          refreshGcalConnectState();
         })
         .catch(() => {
           setMsg(
@@ -1105,6 +1119,48 @@
       });
   }
 
+  // Settings → Google Calendar: push a sample event to the connected
+  // calendar so the admin can confirm the connection end to end.
+  function bindGcalTestEvent() {
+    const btn = document.getElementById("fpb-gcal-test");
+    const msg = document.getElementById("fpb-gcal-test-msg");
+    if (!btn) return;
+
+    btn.addEventListener("click", () => {
+      btn.disabled = true;
+      if (msg) {
+        msg.className = "fpb-gcal-test-msg";
+        msg.textContent = "Sending…";
+      }
+
+      post("snapbook_gcal_test_event", {})
+        .then((res) => {
+          if (!msg) return;
+          const data = res.data || {};
+          msg.className =
+            "fpb-gcal-test-msg " + (res.success ? "is-ok" : "is-err");
+          msg.textContent = data.message || (res.success ? "Done." : "Failed.");
+          if (res.success && data.link) {
+            const a = document.createElement("a");
+            a.href = data.link;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            a.textContent = "View event";
+            msg.append(" ", a);
+          }
+        })
+        .catch((e) => {
+          if (msg) {
+            msg.className = "fpb-gcal-test-msg is-err";
+            msg.textContent = e.message || "Request failed.";
+          }
+        })
+        .finally(() => {
+          btn.disabled = false;
+        });
+    });
+  }
+
   bindBookingStatusUpdate();
   bindRowActionMenus();
   bindQuickPaymentActions();
@@ -1138,4 +1194,5 @@
   bindDateSlotsCalendar();
   bindBalanceReminderButtons();
   bindBalancePayLinkCopy();
+  bindGcalTestEvent();
 })();

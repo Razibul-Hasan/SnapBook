@@ -145,6 +145,7 @@ function snapbook_create_tables()
 		notes         text,
 		signer_name   varchar(200)  DEFAULT '',
 		status        varchar(50)   DEFAULT 'pending',
+		gcal_event_id varchar(120)  NOT NULL DEFAULT '',
 		created_at    datetime      DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (id),
 		KEY order_id (order_id)
