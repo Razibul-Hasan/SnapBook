@@ -772,7 +772,7 @@ function snapbook_page_settings()
         update_option('fpb_payment_fee_pct', min(100, max(0, (float) wp_unslash($_POST['fpb_payment_fee_pct'] ?? 0))));
         update_option('fpb_require_account_booking', absint(wp_unslash($_POST['fpb_require_account_booking'] ?? 0)) === 1 ? 1 : 0);
         update_option('fpb_enable_balance_reminders', absint(wp_unslash($_POST['fpb_enable_balance_reminders'] ?? 0)) === 1 ? 1 : 0);
-        update_option('fpb_balance_reminder_hours', max(1, absint(wp_unslash($_POST['fpb_balance_reminder_hours'] ?? 24))));
+        update_option('fpb_balance_reminder_days_before', absint(wp_unslash($_POST['fpb_balance_reminder_days_before'] ?? 1)));
         update_option('fpb_balance_reminder_template', wp_kses_post(wp_unslash($_POST['fpb_balance_reminder_template'] ?? '')));
         update_option('fpb_order_email_enable', absint(wp_unslash($_POST['fpb_order_email_enable'] ?? 0)) === 1 ? 1 : 0);
         update_option('fpb_order_email_order_table', absint(wp_unslash($_POST['fpb_order_email_order_table'] ?? 0)) === 1 ? 1 : 0);
@@ -826,7 +826,7 @@ function snapbook_page_settings()
     $payment_fee_pct = function_exists('snapbook_get_payment_fee_pct') ? snapbook_get_payment_fee_pct() : 0;
     $require_account_booking = (int) get_option('fpb_require_account_booking', 0);
     $enable_balance_reminders = (int) get_option('fpb_enable_balance_reminders', 0);
-    $balance_reminder_hours = (int) get_option('fpb_balance_reminder_hours', 24);
+    $balance_reminder_days = (int) get_option('fpb_balance_reminder_days_before', 1);
     $balance_reminder_subject = get_option('fpb_balance_reminder_subject', __('Payment reminder for your booking', 'snapbook'));
     $balance_reminder_template = get_option('fpb_balance_reminder_template', snapbook_balance_reminder_default_template());
     $order_email = snapbook_get_order_email_settings();
@@ -1112,8 +1112,10 @@ function snapbook_page_settings()
     echo '<tr><th scope="row">' . esc_html__('Automatic Reminder', 'snapbook') . '</th><td>';
     echo '<label><input type="checkbox" name="fpb_enable_balance_reminders" value="1" ' . checked(1, $enable_balance_reminders, false) . '> ' . esc_html__('Enable automatic reminder email for remaining balance', 'snapbook') . '</label>';
     echo '</td></tr>';
-    echo '<tr><th scope="row"><label for="fpb-balance-reminder-hours">' . esc_html__('Auto reminder delay (hours)', 'snapbook') . '</label></th><td>';
-    echo '<input id="fpb-balance-reminder-hours" class="small-text" type="number" min="1" step="1" name="fpb_balance_reminder_hours" value="' . esc_attr($balance_reminder_hours) . '">';
+    echo '<tr><th scope="row"><label for="fpb-balance-reminder-days">' . esc_html__('Send reminder', 'snapbook') . '</label></th><td>';
+    echo '<input id="fpb-balance-reminder-days" class="small-text" type="number" min="0" step="1" name="fpb_balance_reminder_days_before" value="' . esc_attr($balance_reminder_days) . '"> ';
+    echo '<span>' . esc_html__('day(s) before the photoshoot', 'snapbook') . '</span>';
+    echo '<p class="description">' . esc_html__('Sent at 09:00 on that day, in your site timezone. Use 0 to send on the morning of the shoot. Bookings made inside this window are reminded shortly after checkout instead.', 'snapbook') . '</p>';
     echo '</td></tr>';
     echo '<tr><th scope="row"><label for="fpb-balance-reminder-subject">' . esc_html__('Reminder email subject', 'snapbook') . '</label></th><td>';
     echo '<input id="fpb-balance-reminder-subject" class="regular-text" type="text" name="fpb_balance_reminder_subject" value="' . esc_attr($balance_reminder_subject) . '">';

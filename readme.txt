@@ -94,6 +94,7 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 * A sync toggle to pause without disconnecting, a "Send a test event" button, and a setup checklist covering the redirect URI, enabling the Calendar API, and publishing the Google app.
 * Events use the booking's time when one was given (60 minutes by default, filterable) and fall back to an all-day event otherwise.
 * Bookings now store the created event's ID, so a booking is never added to the calendar twice.
+* **Balance reminders are now anchored to the shoot date** — the automatic reminder goes out a set number of days before the photoshoot (default 1, at 09:00 site time) instead of a fixed delay after checkout. Set it under SnapBook &rarr; Settings &rarr; Remaining Payment Reminder.
 
 = 1.2.0 =
 * New **Admin Order Email** setting (SnapBook → Settings): send yourself a branded "new booking" notification using the same template your customers get, instead of WooCommerce's plain New Order email.

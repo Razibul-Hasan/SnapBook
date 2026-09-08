@@ -818,6 +818,56 @@ function snapbook_send_scheduled_balance_reminder($order_id)
     snapbook_send_balance_reminder_email((int) $order_id, false);
 }
 
+/**
+ * When a booking's balance reminder should go out: N days before the session
+ * (option fpb_balance_reminder_days_before, default 1), at a fixed hour in the
+ * site's timezone.
+ *
+ * A fixed morning hour is used rather than "N × 24h before the shoot starts"
+ * because session_time is free text and often absent — this way the reminder
+ * never lands at midnight and the studio knows when it goes out.
+ *
+ * Returns 0 when the shoot day is already over, so nothing gets scheduled.
+ */
+function snapbook_balance_reminder_timestamp($order_id)
+{
+    $days = max(0, (int) get_option('fpb_balance_reminder_days_before', 1));
+    $hour = max(0, min(23, (int) apply_filters('snapbook_balance_reminder_hour', 9)));
+    $now  = time();
+
+    $order = wc_get_order((int) $order_id);
+    $meta  = $order ? snapbook_get_order_booking_meta($order) : ['session_date' => ''];
+    $date  = trim((string) $meta['session_date']);
+
+    // No session date to anchor to — shouldn't happen, since the booking form
+    // requires a date. Fall back to a next-day nudge rather than silently
+    // leaving an unpaid balance unchased.
+    if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return $now + DAY_IN_SECONDS;
+    }
+
+    try {
+        $tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
+
+        // Nothing left to chase once the shoot day has passed.
+        $shoot_day_end = new DateTime($date, $tz);
+        $shoot_day_end->setTime(23, 59, 59);
+        if ($shoot_day_end->getTimestamp() < $now) {
+            return 0;
+        }
+
+        $send = new DateTime($date, $tz);
+        $send->modify('-' . $days . ' day');
+        $send->setTime($hour, 0, 0);
+    } catch (Exception $e) {
+        return 0;
+    }
+
+    // Booked inside the reminder window (or on the day itself): still send one,
+    // a few minutes out, so the event is never scheduled in the past.
+    return max($send->getTimestamp(), $now + (15 * MINUTE_IN_SECONDS));
+}
+
 function snapbook_schedule_balance_reminder($order_id)
 {
     if ((int) get_option('fpb_enable_balance_reminders', 0) !== 1) {
@@ -829,13 +879,17 @@ function snapbook_schedule_balance_reminder($order_id)
         return;
     }
 
-    $hours = max(1, (int) get_option('fpb_balance_reminder_hours', 24));
     $timestamp = wp_next_scheduled('fpb_send_balance_reminder_event', [$order_id]);
     if ($timestamp) {
         wp_unschedule_event($timestamp, 'fpb_send_balance_reminder_event', [$order_id]);
     }
 
-    wp_schedule_single_event(time() + ($hours * HOUR_IN_SECONDS), 'fpb_send_balance_reminder_event', [$order_id]);
+    $when = snapbook_balance_reminder_timestamp($order_id);
+    if ($when < 1) {
+        return;
+    }
+
+    wp_schedule_single_event($when, 'fpb_send_balance_reminder_event', [$order_id]);
 }
 
 function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
