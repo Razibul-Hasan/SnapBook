@@ -13,6 +13,7 @@ function snapbook_activate()
 
 function snapbook_deactivate()
 {
+    wp_clear_scheduled_hook('snapbook_balance_reminder_sweep');
     flush_rewrite_rules();
 }
 
@@ -81,6 +82,7 @@ function snapbook_create_tables()
 		duration    varchar(80)  DEFAULT '',
 		description text,
 		featured    tinyint(1)   DEFAULT 0,
+		deposit_pct tinyint(3) unsigned NOT NULL DEFAULT 0,
 		sort_order  int          DEFAULT 0,
 		active      tinyint(1)   DEFAULT 1,
 		PRIMARY KEY (id),
@@ -150,6 +152,11 @@ function snapbook_create_tables()
 		PRIMARY KEY (id),
 		KEY order_id (order_id)
 	) $c;");
+
+    // Let Shop Managers run bookings (manage_snapbook), on install and upgrade.
+    if (function_exists('snapbook_grant_capabilities')) {
+        snapbook_grant_capabilities();
+    }
 
     update_option('fpb_db_version', SNAPBOOK_VER);
 }

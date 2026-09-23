@@ -4,7 +4,7 @@
  * SnapBook admin "New booking" notification (HTML).
  *
  * Replaces WooCommerce's admin New Order email body when the branded admin
- * email is enabled under SnapBook → Settings → Admin Order Email. It gives the
+ * email is enabled under SnapBook → Settings → Emails → New-booking alert. It gives the
  * studio the full picture of a booking in one place: what was booked, who
  * booked it, the money breakdown (deposit taken vs. balance still due), any
  * note the customer left, and a one-click link to manage the order.

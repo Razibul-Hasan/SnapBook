@@ -111,16 +111,16 @@ git clone https://github.com/Razibul-Hasan/SnapBook.git \
 | **Session Types** | The categories clients choose from — wedding, portrait, product… |
 | **Packages** | Pricing tiers per session type, with featured flags and share links. |
 | **Add-ons** | Optional extras, globally or scoped to specific packages. |
-| **Date Slots** | The availability calendar. |
-| **Frontend** | The sidebar cards, the **contract step**, and loading placeholders. |
-| **Settings** | Appearance, checkout mode & fields, payment rules, emails, and confirmation text. |
+| **Date Slots** | Open or close single dates (holidays, days off). |
+| **Booking Form** | The steps customers go through (including the optional **contract step**), the sidebar cards, and loading placeholders. |
+| **Settings** | One screen split into sections — General (setup checklist, contact, colors), Payments, Availability, Checkout, Customers, Emails, Google Calendar and Advanced — with a search box and a **?** help tip on every setting. |
 
 <details>
 <summary><b>📖 Setting up the contract step</b></summary>
 
 <br>
 
-**SnapBook → Frontend → Contract step**
+**SnapBook → Booking Form → Contract step**
 
 | Field | Purpose |
 |---|---|

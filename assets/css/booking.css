@@ -1698,7 +1698,7 @@
 
 /* ══════════════════════════════════════════════════════════════
    Two-column layout — informational sidebar beside the wizard.
-   Content is admin-editable in SnapBook → Frontend. When the
+   Content is admin-editable in SnapBook → Booking Form. When the
    sidebar is empty/disabled the wrap gets .fpb-no-sidebar and the
    form keeps its original single-column look.
 ══════════════════════════════════════════════════════════════ */
@@ -1905,7 +1905,7 @@
 /* ── Loading skeletons ──
    Placeholder shapes shown while booking data is in flight. They occupy the
    same footprint as the real content so nothing shifts when it arrives.
-   Toggled from SnapBook → Frontend ("Loading placeholders"). */
+   Toggled from SnapBook → Booking Form ("Loading placeholders"). */
 .fpb-wrap .fpb-skel {
   display: block;
   background: linear-gradient(
@@ -1966,5 +1966,458 @@
 @media (prefers-reduced-motion: reduce) {
   .fpb-wrap .fpb-skel {
     animation: none;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   1.5.0 — availability, start times, promo codes, signature,
+   log-in prompt, accessibility
+══════════════════════════════════════════════════════════════ */
+
+/* The hidden attribute always wins inside the form (some components set
+   their own display value). */
+.fpb-wrap [hidden] {
+  display: none !important;
+}
+
+.fpb-wrap .fpb-sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Text-style button (Remove, Try again, Refresh page, promo toggle) */
+.fpb-wrap .fpb-link-btn {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  font-size: inherit;
+  color: var(--fpb-teal);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.fpb-wrap .fpb-link-btn:hover {
+  color: var(--fpb-gold-dk);
+  background: none;
+}
+
+/* Headings receive focus on step change — no ring for that. */
+.fpb-wrap .fpb-title[tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* ── Step indicator: completed steps are keyboard-operable ── */
+.fpb-wrap .fpb-stab[role="button"]:focus-visible {
+  outline: 2px solid var(--fpb-gold);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* ── Calendar ── */
+.fpb-wrap .fpb-side-cal {
+  scroll-margin: 90px 0;
+  transition:
+    border-color 0.3s,
+    box-shadow 0.3s;
+}
+
+.fpb-wrap .fpb-side-cal:focus {
+  outline: none;
+}
+
+.fpb-wrap .fpb-side-cal:focus-visible {
+  outline: 2px solid var(--fpb-gold);
+  outline-offset: 3px;
+}
+
+/* Brief highlight when a date / start time is still missing */
+.fpb-wrap .fpb-attn {
+  border-color: var(--fpb-gold) !important;
+  animation: fpb-attn 0.7s ease-in-out 3;
+  box-shadow:
+    0 0 0 4px var(--fpb-gold-lt),
+    var(--fpb-sh);
+}
+
+@keyframes fpb-attn {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px var(--fpb-gold-lt),
+      var(--fpb-sh);
+  }
+  50% {
+    box-shadow:
+      0 0 0 8px var(--fpb-gold-lt),
+      var(--fpb-sh);
+  }
+}
+
+.fpb-wrap .fpb-sidebar .fpb-cal-days span {
+  font-size: 0.6rem;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.fpb-wrap .fpb-cell[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+.fpb-wrap .fpb-cell.fpb-today:not(.fpb-sel) {
+  box-shadow: inset 0 0 0 1px var(--fpb-border2);
+}
+
+.fpb-wrap .fpb-cal-nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.fpb-wrap .fpb-cal-nav:disabled:hover {
+  border-color: var(--fpb-border);
+}
+
+.fpb-wrap .fpb-cal-err {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #c0392b;
+  text-align: center;
+}
+
+/* ── Start times under the calendar ── */
+.fpb-wrap .fpb-slots {
+  margin-top: 0.9rem;
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--fpb-border);
+}
+
+.fpb-wrap .fpb-slots-title {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fpb-muted);
+  margin-bottom: 0.55rem;
+}
+
+.fpb-wrap .fpb-slots-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--fpb-muted);
+  text-align: center;
+}
+
+.fpb-wrap .fpb-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 6px;
+}
+
+.fpb-wrap .fpb-slot {
+  margin: 0;
+  padding: 0.5rem 0.35rem;
+  border: 1.5px solid var(--fpb-border);
+  border-radius: 6px;
+  background: var(--fpb-w);
+  box-shadow: none;
+  font-family: var(--fpb-sans);
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.2;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--fpb-text);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.fpb-wrap .fpb-slot:hover:not(:disabled) {
+  border-color: var(--fpb-teal);
+  background: var(--fpb-teal-lt);
+  color: var(--fpb-teal);
+}
+
+.fpb-wrap .fpb-slot.fpb-sel,
+.fpb-wrap .fpb-slot.fpb-sel:hover {
+  background: var(--fpb-gold);
+  border-color: var(--fpb-gold);
+  color: #fff;
+  box-shadow: 0 0 0 3px var(--fpb-gold-lt);
+}
+
+.fpb-wrap .fpb-slot:disabled {
+  background: var(--fpb-off);
+  color: var(--fpb-muted);
+  text-decoration: line-through;
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.fpb-wrap .fpb-slot:focus-visible {
+  outline: 2px solid var(--fpb-gold);
+  outline-offset: 2px;
+}
+
+/* ── Package step: fee / promo note under the price strip ── */
+.fpb-wrap .fpb-price-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--fpb-muted);
+}
+
+/* ── Log-in prompt (bookings that need an account) ── */
+.fpb-wrap .fpb-login-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.9rem 1.1rem;
+  margin: 0 0 1.2rem;
+  padding: 1rem 1.2rem;
+  background: var(--fpb-teal-lt);
+  border: 1px solid var(--fpb-border);
+  border-left: 4px solid var(--fpb-teal);
+  border-radius: 10px;
+  scroll-margin: 90px 0;
+}
+
+.fpb-wrap .fpb-login-card:focus {
+  outline: none;
+}
+
+.fpb-wrap .fpb-login-ic {
+  color: var(--fpb-teal);
+  font-size: 26px;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.fpb-wrap .fpb-login-body {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.fpb-wrap .fpb-login-title {
+  margin: 0 0 0.2rem;
+  font-family: var(--fpb-serif);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--fpb-text);
+}
+
+.fpb-wrap .fpb-login-text {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--fpb-sub);
+}
+
+.fpb-wrap .fpb-login-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.fpb-wrap .fpb-login-actions .fpb-btn {
+  padding: 0.6rem 1.25rem;
+}
+
+/* Themes underline content links; these are buttons. */
+.fpb-wrap .fpb-login-actions a.fpb-btn,
+.fpb-wrap .fpb-login-actions a.fpb-btn:hover,
+.fpb-wrap .fpb-login-actions a.fpb-btn:focus {
+  text-decoration: none;
+}
+
+/* ── Contract: typed signature ── */
+.fpb-wrap .fpb-contract-sign {
+  margin-top: 1rem;
+}
+
+.fpb-wrap .fpb-contract-sign input {
+  font-family: var(--fpb-serif);
+  font-size: 1.1rem;
+  font-style: italic;
+}
+
+.fpb-wrap .fpb-sign-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.76rem;
+  color: var(--fpb-muted);
+}
+
+/* ── Invalid fields ── */
+.fpb-wrap .fpb-field [aria-invalid="true"],
+.fpb-wrap .fpb-promo-form input[aria-invalid="true"] {
+  border-color: #c0392b;
+  box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.12);
+}
+
+/* ── Payment summary: promo code ── */
+.fpb-wrap .fpb-promo {
+  margin: 0.55rem 0 0;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--fpb-border);
+  font-size: 0.8rem;
+}
+
+.fpb-wrap .fpb-promo-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+.fpb-wrap .fpb-promo-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1.5px solid var(--fpb-border);
+  border-radius: 4px;
+  background: var(--fpb-w);
+  font-family: var(--fpb-sans);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fpb-text);
+  outline: none;
+}
+
+.fpb-wrap .fpb-promo-form input:focus {
+  border-color: var(--fpb-teal);
+  box-shadow: 0 0 0 3px rgba(61, 107, 120, 0.12);
+}
+
+.fpb-wrap .fpb-promo-form .fpb-btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.74rem;
+}
+
+.fpb-wrap .fpb-promo-msg {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #c0392b;
+}
+
+.fpb-wrap .fpb-promo-msg:empty {
+  display: none;
+}
+
+.fpb-wrap .fpb-promo-msg.fpb-ok {
+  color: var(--fpb-teal);
+}
+
+.fpb-wrap .fpb-sum-discount-row .fpb-v {
+  color: var(--fpb-teal);
+  font-weight: 600;
+}
+
+.fpb-wrap .fpb-sum-discount-row code {
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  background: var(--fpb-teal-lt);
+  color: var(--fpb-teal);
+}
+
+.fpb-wrap .fpb-sum-discount-row .fpb-link-btn {
+  margin-left: 0.3rem;
+  font-size: 0.76rem;
+}
+
+.fpb-wrap .fpb-sum-fee-note {
+  margin-top: 0.45rem;
+  padding-top: 0;
+  border-top: none;
+  color: var(--fpb-muted);
+}
+
+/* ── Confirmation: bank details / payment instructions ── */
+.fpb-wrap .fpb-confirm-instructions {
+  max-width: 480px;
+  margin: 1.2rem auto 0;
+  padding: 1rem 1.2rem;
+  text-align: left;
+  background: var(--fpb-off);
+  border: 1px solid var(--fpb-border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--fpb-sub);
+}
+
+.fpb-wrap .fpb-confirm-instructions h2,
+.fpb-wrap .fpb-confirm-instructions h3 {
+  margin: 0.8rem 0 0.4rem;
+  font-family: var(--fpb-serif);
+  font-size: 1rem;
+  color: var(--fpb-text);
+}
+
+.fpb-wrap .fpb-confirm-instructions > :first-child {
+  margin-top: 0;
+}
+
+.fpb-wrap .fpb-confirm-instructions ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fpb-wrap .fpb-confirm-instructions li {
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--fpb-border);
+}
+
+.fpb-wrap .fpb-confirm-instructions li:last-child {
+  border-bottom: none;
+}
+
+.fpb-wrap .fpb-confirm-instructions strong {
+  color: var(--fpb-text);
+}
+
+@media (max-width: 480px) {
+  .fpb-wrap .fpb-login-actions,
+  .fpb-wrap .fpb-login-actions .fpb-btn {
+    flex: 1 1 auto;
+  }
+
+  .fpb-wrap .fpb-promo-form {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fpb-wrap .fpb-attn {
+    animation: none;
+  }
+
+  .fpb-wrap .fpb-slot {
+    transition: none;
   }
 }

@@ -4,7 +4,7 @@
  * SnapBook custom booking confirmation email (HTML).
  *
  * Replaces WooCommerce's customer order email body when the custom message
- * is enabled under SnapBook → Settings → Order Email, so the customer sees
+ * is enabled under SnapBook → Settings → Emails → Customer booking confirmation, so the customer sees
  * only the admin's wording instead of it plus WooCommerce's default copy.
  *
  * The whole document — shell, masthead, footer — comes from SnapBook's email
@@ -52,6 +52,17 @@ if ($snapbook_booking_facts !== '') {
     $snapbook_content .= $snapbook_booking_facts;
 }
 
+// Payment instructions from offline gateways (bank transfer account details,
+// cheque, cash on delivery) and anything else hooked before the order table.
+// Without this, a bank-transfer customer never learns where to pay.
+ob_start();
+do_action('woocommerce_email_before_order_table', $order, $sent_to_admin, $plain_text, $email); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own email hook.
+$snapbook_before_table = trim((string) ob_get_clean());
+if ($snapbook_before_table !== '') {
+    $snapbook_content .= snapbook_email_divider(24);
+    $snapbook_content .= '<div style="font-size:14px;line-height:1.6;color:' . esc_attr(snapbook_email_palette()['text']) . ';">' . $snapbook_before_table . '</div>';
+}
+
 if (! empty($snapbook_settings['order_table'])) {
     $snapbook_content .= snapbook_email_divider(24);
     $snapbook_content .= snapbook_email_section_label(__('Order summary', 'snapbook'));
@@ -64,10 +75,20 @@ if (! empty($snapbook_settings['order_table'])) {
 // table. Fired even without the order summary above, so a deposit booking
 // always tells the customer how to settle the rest.
 ob_start();
-do_action('woocommerce_email_after_order_table', $order, $sent_to_admin, $plain_text, $email);
+do_action('woocommerce_email_after_order_table', $order, $sent_to_admin, $plain_text, $email); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own email hook.
 $snapbook_after_table = trim((string) ob_get_clean());
 if ($snapbook_after_table !== '') {
     $snapbook_content .= $snapbook_after_table;
+}
+
+// Where the customer can see the booking, add it to a calendar or ask for a change.
+if (function_exists('snapbook_booking_manage_url') && ! $sent_to_admin) {
+    $snapbook_content .= snapbook_email_divider(24);
+    $snapbook_content .= snapbook_email_text(
+        '<a href="' . esc_url(snapbook_booking_manage_url($order)) . '" style="color:' . esc_attr(snapbook_email_palette()['accent_dk']) . ';font-weight:600;">' . esc_html__('Manage your booking', 'snapbook') . '</a> &mdash; '
+        . esc_html__('add it to your calendar, pay what is left, or ask us for a change.', 'snapbook'),
+        true
+    );
 }
 
 if (! empty($additional_content)) {

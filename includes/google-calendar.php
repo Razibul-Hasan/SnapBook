@@ -412,78 +412,210 @@ function snapbook_gcal_insert_event(array $event, $token)
 }
 
 /**
- * Fired by the booking recorder (woocommerce.php) once a paid booking row is
- * saved. We push the calendar event on a background job so a slow Google call
- * never delays the customer's checkout.
+ * Keep a booking's calendar event in step with the booking. The Google call
+ * runs in a background job (+5s) so a slow API never delays a checkout or an
+ * admin screen.
  */
-add_action('snapbook_booking_created', 'snapbook_gcal_on_booking_created', 10, 1);
-function snapbook_gcal_on_booking_created($booking_id)
+add_action('snapbook_booking_created', 'snapbook_gcal_queue_sync', 10, 1);
+add_action('snapbook_booking_cancelled', 'snapbook_gcal_queue_sync', 10, 1);
+add_action('snapbook_booking_updated', 'snapbook_gcal_queue_sync', 10, 1);
+function snapbook_gcal_queue_sync($booking_id)
 {
     $booking_id = (int) $booking_id;
     if ($booking_id < 1 || ! snapbook_gcal_sync_enabled()) {
         return;
     }
-
-    if (! wp_next_scheduled('snapbook_gcal_create_event', [$booking_id])) {
-        wp_schedule_single_event(time() + 5, 'snapbook_gcal_create_event', [$booking_id]);
+    if (! wp_next_scheduled('snapbook_gcal_sync_event', [$booking_id])) {
+        wp_schedule_single_event(time() + 5, 'snapbook_gcal_sync_event', [$booking_id]);
     }
 }
 
-add_action('snapbook_gcal_create_event', 'snapbook_gcal_create_event_handler', 10, 1);
-function snapbook_gcal_create_event_handler($booking_id)
+add_action('snapbook_gcal_sync_event', 'snapbook_gcal_sync_booking', 10, 1);
+// Jobs queued by 1.3.x/1.4.x under the old name still run.
+add_action('snapbook_gcal_create_event', 'snapbook_gcal_sync_booking', 10, 1);
+
+/**
+ * Make the calendar match the booking: create the event, update it (after an
+ * edit or a reschedule), or delete it (cancelled; Google tells the client).
+ * Failures are queued for retry with back-off.
+ *
+ * @return true|WP_Error
+ */
+function snapbook_gcal_sync_booking($booking_id)
 {
     $booking_id = (int) $booking_id;
-    if ($booking_id < 1 || ! snapbook_gcal_sync_enabled()) {
-        return;
+    if (! snapbook_gcal_sync_enabled()) {
+        return new WP_Error('snapbook_gcal_off', __('Google Calendar is not connected or sync is paused.', 'snapbook'));
     }
 
     global $wpdb;
-    $pfx = $wpdb->prefix . 'fpb_';
-    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- prepared query on the custom bookings table; only the trusted table prefix is interpolated.
-    $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$pfx}bookings WHERE id = %d", $booking_id));
+    $table = $wpdb->prefix . 'fpb_bookings';
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- custom bookings table; only the trusted table prefix is interpolated.
+    $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $booking_id));
     if (! $booking) {
-        return;
-    }
-    // Already synced (or column missing on an un-migrated install).
-    if (! empty($booking->gcal_event_id)) {
-        return;
+        snapbook_gcal_retry_done($booking_id);
+        return new WP_Error('snapbook_gcal_missing', __('Booking not found.', 'snapbook'));
     }
 
     $token = snapbook_gcal_access_token();
     if ($token === '') {
-        return;
+        return snapbook_gcal_sync_failed($booking_id, (string) get_option('fpb_gcal_last_error', __('Could not obtain a Google access token.', 'snapbook')));
+    }
+
+    $event_id = (string) ($booking->gcal_event_id ?? '');
+    $base     = 'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode(snapbook_gcal_calendar_id()) . '/events';
+    $headers  = ['Authorization' => 'Bearer ' . $token, 'Content-Type' => 'application/json'];
+
+    // Cancelled: remove the event (if there is one).
+    if ((string) $booking->status === 'cancelled') {
+        if ($event_id === '') {
+            snapbook_gcal_retry_done($booking_id);
+            return true;
+        }
+        $res  = wp_remote_request(add_query_arg('sendUpdates', 'all', $base . '/' . rawurlencode($event_id)), ['method' => 'DELETE', 'timeout' => 25, 'headers' => $headers]);
+        $code = is_wp_error($res) ? 0 : (int) wp_remote_retrieve_response_code($res);
+        // 404/410: already gone from Google, nothing left to do.
+        if (in_array($code, [200, 204, 404, 410], true)) {
+            $wpdb->update($table, ['gcal_event_id' => ''], ['id' => $booking_id]); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+            snapbook_gcal_retry_done($booking_id);
+            return true;
+        }
+        return snapbook_gcal_sync_failed($booking_id, is_wp_error($res) ? $res->get_error_message() : snapbook_gcal_api_error($res));
     }
 
     $event = snapbook_gcal_build_event($booking);
     if (empty($event)) {
-        return;
+        snapbook_gcal_retry_done($booking_id);
+        return new WP_Error('snapbook_gcal_nodate', __('The booking has no usable date, so there is nothing to put in the calendar.', 'snapbook'));
+    }
+
+    // Update the existing event; if it was deleted in Google, create a new one.
+    if ($event_id !== '') {
+        $res  = wp_remote_request(add_query_arg('sendUpdates', empty($event['attendees']) ? 'none' : 'all', $base . '/' . rawurlencode($event_id)), [
+            'method'  => 'PATCH',
+            'timeout' => 25,
+            'headers' => $headers,
+            'body'    => wp_json_encode($event),
+        ]);
+        $code = is_wp_error($res) ? 0 : (int) wp_remote_retrieve_response_code($res);
+        if ($code >= 200 && $code < 300) {
+            snapbook_gcal_retry_done($booking_id);
+            delete_option('fpb_gcal_last_error');
+            return true;
+        }
+        if (! in_array($code, [404, 410], true)) {
+            return snapbook_gcal_sync_failed($booking_id, is_wp_error($res) ? $res->get_error_message() : snapbook_gcal_api_error($res));
+        }
     }
 
     $res = snapbook_gcal_insert_event($event, $token);
-
     if (is_wp_error($res)) {
-        snapbook_gcal_set_error($res->get_error_message());
-        return;
+        return snapbook_gcal_sync_failed($booking_id, $res->get_error_message());
     }
-
     $code = (int) wp_remote_retrieve_response_code($res);
     $data = json_decode(wp_remote_retrieve_body($res), true);
-
     if ($code >= 200 && $code < 300 && ! empty($data['id'])) {
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, PluginCheck.Security.DirectDB.UnescapedDBParameter -- writing the event id back to the custom bookings table; only the trusted table prefix is interpolated.
-        $wpdb->update(
-            "{$pfx}bookings",
-            ['gcal_event_id' => sanitize_text_field($data['id'])],
-            ['id' => $booking_id],
-            ['%s'],
-            ['%d']
-        );
+        $wpdb->update($table, ['gcal_event_id' => sanitize_text_field($data['id'])], ['id' => $booking_id]); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        snapbook_gcal_retry_done($booking_id);
         delete_option('fpb_gcal_last_error');
-        return;
+        return true;
     }
 
-    $api_msg = isset($data['error']['message']) ? $data['error']['message'] : ('HTTP ' . $code);
-    snapbook_gcal_set_error('Calendar event was not created: ' . $api_msg);
+    return snapbook_gcal_sync_failed($booking_id, snapbook_gcal_api_error($res));
+}
+
+function snapbook_gcal_api_error($res)
+{
+    $data = json_decode((string) wp_remote_retrieve_body($res), true);
+    return isset($data['error']['message']) ? (string) $data['error']['message'] : ('HTTP ' . (int) wp_remote_retrieve_response_code($res));
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Retries: a failed sync is tried again 15 min, 30 min, 1 h, 2 h and
+   4 h later (option fpb_gcal_retry = [booking_id => [tries, next]]),
+   then left for the studio to retry by hand from the booking.
+───────────────────────────────────────────────────────────── */
+function snapbook_gcal_sync_failed($booking_id, $message)
+{
+    /* translators: 1: booking id, 2: Google's error message */
+    $text = sprintf(__('Booking #%1$d could not be synced to Google Calendar: %2$s', 'snapbook'), (int) $booking_id, $message);
+    snapbook_gcal_set_error($text);
+
+    $queue = get_option('fpb_gcal_retry', []);
+    $queue = is_array($queue) ? $queue : [];
+    $tries = (int) ($queue[$booking_id]['tries'] ?? 0) + 1;
+    if ($tries <= 5) {
+        $queue[$booking_id] = ['tries' => $tries, 'next' => time() + (15 * MINUTE_IN_SECONDS) * (2 ** ($tries - 1))];
+    } else {
+        unset($queue[$booking_id]);
+    }
+    update_option('fpb_gcal_retry', $queue, false);
+
+    return new WP_Error('snapbook_gcal_failed', $text);
+}
+
+function snapbook_gcal_retry_done($booking_id)
+{
+    $queue = get_option('fpb_gcal_retry', []);
+    if (is_array($queue) && isset($queue[$booking_id])) {
+        unset($queue[$booking_id]);
+        update_option('fpb_gcal_retry', $queue, false);
+    }
+}
+
+/**
+ * Run the retries that are due. Called from the hourly SnapBook maintenance
+ * job (woocommerce.php).
+ */
+function snapbook_gcal_run_retries()
+{
+    if (! snapbook_gcal_sync_enabled()) {
+        return;
+    }
+    $queue = get_option('fpb_gcal_retry', []);
+    foreach ((is_array($queue) ? $queue : []) as $booking_id => $entry) {
+        if ((int) ($entry['next'] ?? 0) <= time()) {
+            snapbook_gcal_sync_booking((int) $booking_id);
+        }
+    }
+}
+
+/**
+ * Say so on the SnapBook screens when calendar sync is failing, instead of
+ * only on the settings card.
+ */
+add_action('admin_notices', 'snapbook_gcal_admin_notice');
+function snapbook_gcal_admin_notice()
+{
+    $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+    if (strpos($page, 'sb-') !== 0 || ! function_exists('snapbook_can_manage') || ! snapbook_can_manage()) {
+        return;
+    }
+    $error = (string) get_option('fpb_gcal_last_error', '');
+    if ($error === '' || ! snapbook_gcal_is_connected()) {
+        return;
+    }
+    $queue   = get_option('fpb_gcal_retry', []);
+    $pending = is_array($queue) ? count($queue) : 0;
+    $dismiss = wp_nonce_url(admin_url('admin-post.php?action=snapbook_gcal_dismiss_error'), 'snapbook_gcal_dismiss_error');
+
+    echo '<div class="notice notice-warning"><p><strong>' . esc_html__('Google Calendar', 'snapbook') . ':</strong> ' . esc_html($error);
+    if ($pending > 0) {
+        /* translators: %d: bookings waiting to be synced */
+        echo ' ' . esc_html(sprintf(_n('%d booking will be retried automatically.', '%d bookings will be retried automatically.', $pending, 'snapbook'), $pending));
+    }
+    echo ' <a href="' . esc_url(admin_url('admin.php?page=sb-settings#fpb-gcal')) . '">' . esc_html__('Calendar settings', 'snapbook') . '</a> &middot; <a href="' . esc_url($dismiss) . '">' . esc_html__('Dismiss', 'snapbook') . '</a></p></div>';
+}
+
+add_action('admin_post_snapbook_gcal_dismiss_error', 'snapbook_gcal_dismiss_error');
+function snapbook_gcal_dismiss_error()
+{
+    check_admin_referer('snapbook_gcal_dismiss_error');
+    if (function_exists('snapbook_can_manage') && snapbook_can_manage()) {
+        delete_option('fpb_gcal_last_error');
+    }
+    wp_safe_redirect(wp_get_referer() ? wp_get_referer() : admin_url('admin.php?page=sb-bookings'));
+    exit;
 }
 
 /**

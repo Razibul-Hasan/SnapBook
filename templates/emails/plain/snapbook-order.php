@@ -45,6 +45,10 @@ if ($snapbook_facts !== '') {
 
 ob_start();
 
+// Payment instructions from offline gateways (bank transfer account details,
+// cheque, cash on delivery), mirroring the HTML template.
+do_action('woocommerce_email_before_order_table', $order, $sent_to_admin, true, $email); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own email hook.
+
 if (! empty($snapbook_settings['order_table'])) {
     // Order summary — the branded money breakdown, mirroring the HTML panel.
     $snapbook_money = snapbook_email_plain_facts(snapbook_email_money_facts_rows($order));
@@ -59,7 +63,13 @@ if (! empty($snapbook_settings['order_table'])) {
 // table). Fired once, regardless of the order-summary toggle, so a deposit
 // booking always tells the customer how to settle the rest.
 echo "\n";
-do_action('woocommerce_email_after_order_table', $order, $sent_to_admin, true, $email);
+do_action('woocommerce_email_after_order_table', $order, $sent_to_admin, true, $email); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own email hook.
+
+if (function_exists('snapbook_booking_manage_url') && ! $sent_to_admin) {
+    echo "
+" . esc_html__('Manage your booking', 'snapbook') . ': ' . esc_url_raw(snapbook_booking_manage_url($order)) . "
+"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+}
 
 // WooCommerce's plain templates leave prices as HTML entities (&#2547;);
 // decode them so the customer reads the currency symbol itself.

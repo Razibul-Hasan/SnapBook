@@ -506,6 +506,18 @@ function snapbook_email_booking_facts_rows($order)
     $meta = snapbook_get_order_booking_meta($order);
     $time = (string) $order->get_meta('_fpb_billing_event_time', true);
 
+    // Record of the Terms & Conditions the customer accepted, if any.
+    $terms       = '';
+    $accepted_at = (string) $order->get_meta('_fpb_contract_accepted_at', true);
+    if ($accepted_at !== '') {
+        $terms     = get_date_from_gmt($accepted_at, get_option('date_format') . ' ' . get_option('time_format'));
+        $signature = (string) $order->get_meta('_fpb_contract_signature', true);
+        if ($signature !== '') {
+            /* translators: 1: date and time, 2: typed signature */
+            $terms = sprintf(__('%1$s, signed "%2$s"', 'snapbook'), $terms, $signature);
+        }
+    }
+
     return [
         ['label' => __('Session', 'snapbook'), 'value' => $meta['session_type']],
         ['label' => __('Package', 'snapbook'), 'value' => $meta['package_name']],
@@ -515,6 +527,7 @@ function snapbook_email_booking_facts_rows($order)
         ['label' => __('Date', 'snapbook'), 'value' => $meta['session_date'], 'strong' => true],
         ['label' => __('Time', 'snapbook'), 'value' => $time],
         ['label' => __('Booking reference', 'snapbook'), 'value' => '#' . $order->get_order_number()],
+        ['label' => __('Terms accepted', 'snapbook'), 'value' => $terms],
     ];
 }
 
@@ -560,7 +573,13 @@ function snapbook_email_money_facts_rows($order)
                 'label' => sprintf(/* translators: %s: deposit percentage */ __('Deposit paid (%s%%)', 'snapbook'), $pct),
                 'value' => $money($figures['deposit']),
             ];
-            $rows[] = ['label' => __('Balance due', 'snapbook'), 'value' => $money($figures['balance']), 'strong' => true];
+            // The completed-order email goes out after the balance is paid too.
+            $settled = function_exists('snapbook_booking_balance_paid') && snapbook_booking_balance_paid($order);
+            $rows[]  = ['label' => $settled ? __('Balance paid', 'snapbook') : __('Balance due', 'snapbook'), 'value' => $money($figures['balance']), 'strong' => true];
+            $due_by  = (string) $order->get_meta('_fpb_balance_due_date', true);
+            if (! $settled && $due_by !== '') {
+                $rows[] = ['label' => __('Balance due by', 'snapbook'), 'value' => snapbook_email_pretty_date($due_by)];
+            }
         }
     } else {
         $rows[] = ['label' => __('Order total', 'snapbook'), 'value' => $money($order->get_total()), 'strong' => true];
@@ -855,6 +874,86 @@ function snapbook_email_plain_facts($rows)
 function snapbook_balance_reminder_default_template()
 {
     return __("Hi {customer_name},\n\nThis is a friendly reminder that {balance_amount} is still due for your booking on {session_date}.\n\nThank you.", 'snapbook');
+}
+
+function snapbook_balance_reminder_default_subject()
+{
+    return __('Payment reminder for your booking', 'snapbook');
+}
+
+/**
+ * Balance-reminder settings (SnapBook → Settings → Emails → Balance reminders).
+ *
+ * Two independent schedules:
+ * - "before": one email N days before the photoshoot. Its switch is the
+ *   original fpb_enable_balance_reminders option, so sites that already had
+ *   reminders on keep them on.
+ * - "repeat": an email every N days until the balance is paid, optionally
+ *   capped at a number of reminders or stopped once the shoot date passes.
+ *
+ * repeat_since is set when "repeat" is switched on, so turning it on doesn't
+ * email every old unpaid booking in the same hour.
+ */
+function snapbook_get_balance_reminder_settings()
+{
+    $subject  = trim((string) get_option('fpb_balance_reminder_subject', ''));
+    $template = trim((string) get_option('fpb_balance_reminder_template', ''));
+
+    return [
+        'before_enable'           => (int) get_option('fpb_enable_balance_reminders', 0) === 1,
+        'days_before'             => max(0, min(60, (int) get_option('fpb_balance_reminder_days_before', 1))),
+        'repeat_enable'           => (int) get_option('fpb_balance_reminder_repeat_enable', 0) === 1,
+        'repeat_days'             => max(1, min(60, (int) get_option('fpb_balance_reminder_repeat_days', 3))),
+        'repeat_max'              => max(0, min(100, (int) get_option('fpb_balance_reminder_repeat_max', 0))),
+        'repeat_stop_after_shoot' => (int) get_option('fpb_balance_reminder_repeat_stop_after_shoot', 0) === 1,
+        'repeat_since'            => (int) get_option('fpb_balance_reminder_repeat_since', 0),
+        // Hour (site time) the "before" reminder goes out.
+        'hour'                    => max(0, min(23, (int) apply_filters('snapbook_balance_reminder_hour', 9))),
+        'subject'                 => $subject !== '' ? $subject : snapbook_balance_reminder_default_subject(),
+        'template'                => $template !== '' ? $template : snapbook_balance_reminder_default_template(),
+    ];
+}
+
+/**
+ * Whether any automatic reminder schedule is switched on.
+ */
+function snapbook_balance_reminders_active()
+{
+    $cfg = snapbook_get_balance_reminder_settings();
+    return $cfg['before_enable'] || $cfg['repeat_enable'];
+}
+
+/**
+ * Save the reminder card. Shared by the settings page's POST handler
+ * (admin.php) and its AJAX handler (ajax.php) so the two can't drift apart.
+ *
+ * @param array $post Raw $_POST (slashed).
+ */
+function snapbook_save_balance_reminder_settings($post)
+{
+    $flag = static function ($key) use ($post) {
+        return absint(wp_unslash($post[$key] ?? 0)) === 1 ? 1 : 0;
+    };
+
+    update_option('fpb_enable_balance_reminders', $flag('fpb_enable_balance_reminders'));
+    update_option('fpb_balance_reminder_days_before', min(60, absint(wp_unslash($post['fpb_balance_reminder_days_before'] ?? 1))));
+
+    $repeat_was_on = (int) get_option('fpb_balance_reminder_repeat_enable', 0) === 1;
+    $repeat_on     = $flag('fpb_balance_reminder_repeat_enable');
+    update_option('fpb_balance_reminder_repeat_enable', $repeat_on);
+    if ($repeat_on && ! $repeat_was_on) {
+        update_option('fpb_balance_reminder_repeat_since', time());
+    }
+    update_option('fpb_balance_reminder_repeat_days', max(1, min(60, absint(wp_unslash($post['fpb_balance_reminder_repeat_days'] ?? 3)))));
+    update_option('fpb_balance_reminder_repeat_max', min(100, absint(wp_unslash($post['fpb_balance_reminder_repeat_max'] ?? 0))));
+    update_option('fpb_balance_reminder_repeat_stop_after_shoot', $flag('fpb_balance_reminder_repeat_stop_after_shoot'));
+
+    // A blank subject or message would send an empty email; fall back to the
+    // defaults instead.
+    $subject = sanitize_text_field(wp_unslash($post['fpb_balance_reminder_subject'] ?? ''));
+    update_option('fpb_balance_reminder_subject', $subject !== '' ? $subject : snapbook_balance_reminder_default_subject());
+    $template = trim(wp_kses_post(wp_unslash($post['fpb_balance_reminder_template'] ?? '')));
+    update_option('fpb_balance_reminder_template', $template !== '' ? $template : snapbook_balance_reminder_default_template());
 }
 
 /**

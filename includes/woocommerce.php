@@ -178,8 +178,9 @@ function snapbook_customize_checkout_fields($fields)
         ],
     ];
 
+    // Text, not number: rooms are often "B12" or "Villa 3".
     $fields['billing']['billing_room_number'] = [
-        'type'        => 'number',
+        'type'        => 'text',
         'label'       => __('Room Number', 'snapbook'),
         'placeholder' => __('Room number', 'snapbook'),
         'required'    => false,
@@ -406,6 +407,17 @@ function snapbook_validate_checkout_fields($data, $errors)
         }
     }
 
+    // The date may have been taken since the booking went into the cart.
+    foreach ((WC()->cart ? WC()->cart->get_cart() : []) as $cart_item) {
+        if (! empty($cart_item['fpb_booking']['session_date'])) {
+            $date_ok = snapbook_validate_booking_date($cart_item['fpb_booking']['session_date']);
+            if (is_wp_error($date_ok)) {
+                $errors->add('validation', $date_ok->get_error_message());
+            }
+            break;
+        }
+    }
+
     if (! empty($cfg['participants']['enabled'])) {
         // phpcs:ignore WordPress.Security.NonceVerification.Missing -- WooCommerce verifies the checkout nonce before this hook runs.
         $participants = isset($_POST['billing_participants']) ? absint(wp_unslash($_POST['billing_participants'])) : 0;
@@ -523,11 +535,13 @@ function snapbook_save_order_item_meta($item, $cart_item_key, $values, $order)
     $meta_map = [
         '_fpb_session_type'  => $b['session_type']  ?? '',
         '_fpb_package_name'  => $b['package_name']  ?? '',
+        '_fpb_package_id'    => (int) ($b['package_id'] ?? 0),
+        '_fpb_addon_ids'     => implode(',', array_map('intval', (array) ($b['addon_ids'] ?? []))),
         '_fpb_total'         => $b['total']         ?? '',
         '_fpb_fee_pct'       => $b['fee_pct']       ?? 0,
         '_fpb_fee_amount'    => $b['fee_amount']    ?? 0,
         '_fpb_deposit'       => $b['deposit']       ?? '',
-        '_fpb_deposit_pct'   => $b['deposit_pct']   ?? (snapbook_partial_payment_enabled() ? 50 : 100),
+        '_fpb_deposit_pct'   => $b['deposit_pct']   ?? (snapbook_partial_payment_enabled() ? snapbook_get_deposit_pct((int) ($b['package_id'] ?? 0)) : 100),
         '_fpb_balance_due'   => max(0, (float) ($b['total'] ?? 0) - (float) ($b['deposit'] ?? 0)),
         '_fpb_addons_label'  => $b['addons_label']  ?? '',
         '_fpb_addons_total'  => $b['addons_total']  ?? '',
@@ -547,14 +561,39 @@ function snapbook_save_order_item_meta($item, $cart_item_key, $values, $order)
         '_fpb_billing_room_number'  => $order->get_meta('_fpb_billing_room_number', true),
         '_fpb_billing_stay_period'  => $order->get_meta('_fpb_billing_stay_period', true),
         '_fpb_currency'      => $cur,
+        '_fpb_subtotal'      => $b['subtotal']      ?? '',
+        '_fpb_coupon_code'   => $b['coupon_code']   ?? '',
+        '_fpb_discount'      => $b['discount']      ?? 0,
     ];
+    if (! empty($b['contract']['signature'])) {
+        $meta_map['_fpb_signer_name'] = (string) $b['contract']['signature'];
+    }
     foreach ($meta_map as $key => $val) {
         $item->add_meta_data($key, $val, true);
+    }
+
+    // Same order-level records as the direct flow (snapbook_create_booking_order()).
+    if (! empty($b['balance_due_date'])) {
+        $order->update_meta_data('_fpb_balance_due_date', (string) $b['balance_due_date']);
+    }
+    if (! empty($b['contract']) && is_array($b['contract'])) {
+        $order->update_meta_data('_fpb_contract_accepted_at', (string) $b['contract']['accepted_at']);
+        $order->update_meta_data('_fpb_contract_version', (string) $b['contract']['version']);
+        $order->update_meta_data('_fpb_contract_signature', (string) $b['contract']['signature']);
+        $order->update_meta_data('_fpb_contract_ip', (string) $b['contract']['ip']);
+        $order->update_meta_data('_fpb_contract_ua', (string) $b['contract']['ua']);
+        snapbook_remember_contract_version($b['contract']['version']);
     }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   On payment complete — save booking to DB and block date
+   Booking orders → booking rows
+   ───────────────────────────────────────────────────────────────
+   Paid (processing/completed): the booking is confirmed (deposit paid or
+   paid in full). Placed but unpaid (on-hold: bank transfer, cheque, cash on
+   delivery; or added by the studio as unpaid): the booking is "awaiting
+   payment" and already holds its date, so nobody else can take it while
+   the money is on its way.
 ═══════════════════════════════════════════════════════════════ */
 add_action('woocommerce_payment_complete', 'snapbook_on_paid_order', 10, 1);
 add_action('woocommerce_order_status_processing', 'snapbook_on_paid_order', 10, 1);
@@ -562,91 +601,230 @@ add_action('woocommerce_order_status_completed', 'snapbook_on_paid_order', 10, 1
 function snapbook_on_paid_order($order_id)
 {
     $order = wc_get_order($order_id);
-    if (! $order) return;
-    if ((int) $order->get_meta('_fpb_is_balance_order', true) === 1) return;
+    if (! $order || (int) $order->get_meta('_fpb_is_balance_order', true) === 1) {
+        return;
+    }
 
     snapbook_cleanup_checkout_draft_orders($order);
+    snapbook_upsert_booking_from_order($order);
+}
 
-    $fpb_product = (int) get_option('fpb_wc_product_id', 0);
+add_action('woocommerce_order_status_on-hold', 'snapbook_on_booking_order_on_hold', 10, 1);
+function snapbook_on_booking_order_on_hold($order_id)
+{
+    $order = wc_get_order($order_id);
+    if (! $order || (int) $order->get_meta('_fpb_is_balance_order', true) === 1 || ! snapbook_is_booking_order($order)) {
+        return;
+    }
+    snapbook_upsert_booking_from_order($order);
+}
+
+/**
+ * created_via for orders the studio adds by hand. Never 'snapbook': that value
+ * marks public-form orders, which expire when left unpaid and count as holds.
+ */
+function snapbook_booking_order_created_via()
+{
+    return 'snapbook-admin';
+}
+
+/**
+ * The order's booking line item (the one carrying the hidden booking
+ * product), or null.
+ */
+function snapbook_get_booking_item($order)
+{
+    if (! $order) {
+        return null;
+    }
+    $product_id = (int) get_option('fpb_wc_product_id', 0);
     foreach ($order->get_items() as $item) {
-        /** @var WC_Order_Item_Product $item */
-        if ((int) $item->get_product_id() !== $fpb_product) continue;
-
-        // Collect meta
-        $session_type   = $item->get_meta('_fpb_session_type');
-        $package_name   = $item->get_meta('_fpb_package_name');
-        $session_date   = $item->get_meta('_fpb_session_date');
-
-        // Avoid duplicate inserts (order payment_complete fires once, but let's be safe)
-        global $wpdb;
-        $pfx = $wpdb->prefix . 'fpb_';
-        $already = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$pfx}bookings WHERE order_id=%d LIMIT 1", $order_id)); // phpcs:ignore
-        if ($already) return;
-
-        $deposit_pct = (int) $item->get_meta('_fpb_deposit_pct');
-        if ($deposit_pct < 1) {
-            $deposit_pct = snapbook_partial_payment_enabled() ? 50 : 100;
+        if ((int) $item->get_product_id() === $product_id) {
+            return $item;
         }
-        $deposit     = (float) $item->get_meta('_fpb_deposit');
-        $total       = (float) $item->get_meta('_fpb_total');
-        if ($total <= 0 && $deposit > 0) {
-            $total = round($deposit * 100 / max($deposit_pct, 1), 2);
-        }
-        if ($deposit <= 0) {
-            $deposit = $total;
-        }
-        $balance_due = max(0, $total - $deposit);
-        $booking_status = ($balance_due > 0.01) ? 'pending_payment' : 'confirmed';
+    }
 
+    return null;
+}
+
+/**
+ * Create or bring up to date the wp_fpb_bookings row behind a booking order.
+ *
+ * - New row: status from the payment state ('awaiting_payment' while unpaid,
+ *   'pending_payment' once a deposit is paid, 'confirmed' when paid in full)
+ *   unless $status is given; the date is held (and a clash is flagged to the
+ *   studio); snapbook_booking_created fires (Google Calendar listens).
+ * - Existing row: an 'awaiting_payment' booking moves on once the order is
+ *   paid; a 'cancelled' booking whose order became active again is
+ *   re-activated and holds its date again.
+ * - Once paid with a balance left, the balance order is created (idempotent).
+ *
+ * @param WC_Order|int $order
+ * @param string       $status Force a status for a NEW row (e.g. 'awaiting_payment').
+ * @return int Booking row id, 0 when the order carries no booking.
+ */
+function snapbook_upsert_booking_from_order($order, $status = '')
+{
+    $order = is_a($order, 'WC_Order') ? $order : wc_get_order((int) $order);
+    if (! $order || (int) $order->get_meta('_fpb_is_balance_order', true) === 1) {
+        return 0;
+    }
+    $item = snapbook_get_booking_item($order);
+    if (! $item) {
+        return 0;
+    }
+
+    $order_id     = (int) $order->get_id();
+    $package_name = (string) $item->get_meta('_fpb_package_name');
+    $session_date = (string) $item->get_meta('_fpb_session_date');
+    // The hidden booking product bought directly (?add-to-cart=) carries no
+    // booking at all; don't record an empty booking for it.
+    if ($package_name === '' && $session_date === '') {
+        return 0;
+    }
+
+    $deposit_pct = (int) $item->get_meta('_fpb_deposit_pct');
+    if ($deposit_pct < 1) {
+        $deposit_pct = snapbook_partial_payment_enabled() ? snapbook_get_deposit_pct() : 100;
+    }
+    $deposit = (float) $item->get_meta('_fpb_deposit');
+    $total   = (float) $item->get_meta('_fpb_total');
+    if ($total <= 0 && $deposit > 0) {
+        $total = round($deposit * 100 / max($deposit_pct, 1), 2);
+    }
+    if ($deposit <= 0) {
+        $deposit = $total;
+    }
+    $balance_due = max(0, round($total - $deposit, 2));
+
+    $paid    = $order->is_paid();
+    $derived = ! $paid ? 'awaiting_payment' : ($balance_due > 0.01 ? 'pending_payment' : 'confirmed');
+    if ($status === '' || ! array_key_exists($status, snapbook_booking_statuses())) {
+        $status = $derived;
+    }
+
+    // Gateways can report one payment twice at the same moment (webhook plus
+    // the customer's return), so check-then-insert runs under a lock.
+    global $wpdb;
+    $pfx  = $wpdb->prefix . 'fpb_';
+    $lock = 'snapbook_booking_' . $order_id;
+    $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 10)', $lock)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+    $row         = $wpdb->get_row($wpdb->prepare("SELECT id, status FROM {$pfx}bookings WHERE order_id = %d LIMIT 1", $order_id)); // phpcs:ignore
+    $booking_id  = $row ? (int) $row->id : 0;
+    $holds_date  = false; // the date needs (re)checking and holding
+    $newly_paid  = false;
+
+    if (! $row) {
         $wpdb->insert("{$pfx}bookings", [ // phpcs:ignore
-            'order_id'      => $order_id,
-            'session_type'  => sanitize_text_field($session_type),
-            'package_name'  => sanitize_text_field($package_name),
-            'package_price' => floatval($item->get_meta('_fpb_total')) - floatval($item->get_meta('_fpb_addons_total')),
-            'addons_json'   => sanitize_text_field($item->get_meta('_fpb_addons_label')),
-            'addons_total'  => floatval($item->get_meta('_fpb_addons_total')),
-            'total'         => $total,
-            'deposit'       => $deposit,
-            'client_name'   => sanitize_text_field($item->get_meta('_fpb_client_name')),
-            'client_email'  => sanitize_email($item->get_meta('_fpb_client_email')),
-            'client_phone'  => sanitize_text_field($item->get_meta('_fpb_client_phone')),
-            'client_country' => sanitize_text_field($item->get_meta('_fpb_client_country')),
-            'session_date'  => $session_date ?: null,
-            'session_time'  => sanitize_text_field($item->get_meta('_fpb_session_time')),
-            'location_pref' => sanitize_text_field($item->get_meta('_fpb_location_pref')),
-            'notes'         => sanitize_textarea_field($item->get_meta('_fpb_notes')),
-            'signer_name'   => sanitize_text_field($item->get_meta('_fpb_signer_name')),
-            'status'        => $booking_status,
+            'order_id'       => $order_id,
+            'session_type'   => sanitize_text_field((string) $item->get_meta('_fpb_session_type')),
+            'package_name'   => sanitize_text_field($package_name),
+            // _fpb_total includes the payment fee; the package price doesn't.
+            'package_price'  => max(0, (float) $item->get_meta('_fpb_total') - (float) $item->get_meta('_fpb_addons_total') - (float) $item->get_meta('_fpb_fee_amount')),
+            'addons_json'    => sanitize_text_field((string) $item->get_meta('_fpb_addons_label')),
+            'addons_total'   => (float) $item->get_meta('_fpb_addons_total'),
+            'total'          => $total,
+            'deposit'        => $deposit,
+            'client_name'    => sanitize_text_field((string) $item->get_meta('_fpb_client_name')),
+            'client_email'   => sanitize_email((string) $item->get_meta('_fpb_client_email')),
+            'client_phone'   => sanitize_text_field((string) $item->get_meta('_fpb_client_phone')),
+            'client_country' => sanitize_text_field((string) $item->get_meta('_fpb_client_country')),
+            'session_date'   => $session_date !== '' ? $session_date : null,
+            'session_time'   => sanitize_text_field((string) $item->get_meta('_fpb_session_time')),
+            'location_pref'  => sanitize_text_field((string) $item->get_meta('_fpb_location_pref')),
+            'notes'          => sanitize_textarea_field((string) $item->get_meta('_fpb_notes')),
+            'signer_name'    => sanitize_text_field((string) $item->get_meta('_fpb_signer_name')),
+            'status'         => $status,
         ]);
-
         $booking_id = (int) $wpdb->insert_id;
+        $holds_date = true;
+        $newly_paid = $paid;
+    } elseif ($row->status === 'awaiting_payment' && $paid) {
+        $wpdb->update("{$pfx}bookings", ['status' => $derived], ['id' => $booking_id]); // phpcs:ignore
+        $newly_paid = true;
+    } elseif ($row->status === 'cancelled' && $order->has_status(['processing', 'completed', 'on-hold'])) {
+        // Brought back from a cancellation: it needs its date again.
+        $wpdb->update("{$pfx}bookings", ['status' => $derived], ['id' => $booking_id]); // phpcs:ignore
+        $holds_date = true;
+        $newly_paid = $paid;
+        $order->add_order_note(__('Booking re-activated; its date is held again.', 'snapbook'));
+    }
 
-        // Mark session date as booked
-        if ($session_date && preg_match('/^\d{4}-\d{2}-\d{2}$/', $session_date)) {
-            $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$pfx}dates WHERE date_str=%s", $session_date)); // phpcs:ignore
-            if ($existing) {
-                $wpdb->update("{$pfx}dates", ['status' => 'booked'], ['date_str' => $session_date]); // phpcs:ignore
-            } else {
-                $wpdb->insert("{$pfx}dates", ['date_str' => $session_date, 'status' => 'booked']); // phpcs:ignore
-            }
+    $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+    if ($booking_id < 1) {
+        return 0;
+    }
+
+    // Hold the date. It was checked when the order was created, but two
+    // customers can still end up on one date (an old tab, a pay link used
+    // late, a booking re-activated). The money is taken either way, so the
+    // booking stays; the studio is told so it can move one of them.
+    if ($holds_date && preg_match('/^\d{4}-\d{2}-\d{2}$/', $session_date)) {
+        $clash = snapbook_validate_booking_date($session_date, $order_id, (string) $item->get_meta('_fpb_session_time'), '', true);
+        if (is_wp_error($clash) && in_array($clash->get_error_code(), ['snapbook_date_taken', 'snapbook_slot_taken'], true)) {
+            $slot = (string) $wpdb->get_var($wpdb->prepare("SELECT status FROM {$pfx}dates WHERE date_str = %s", $session_date)); // phpcs:ignore
+            snapbook_flag_date_conflict($order, $session_date, $slot === 'blocked' ? 'blocked' : 'booked');
         }
+        snapbook_refresh_date_slot($session_date);
+    }
 
-        if ($balance_due > 0.01) {
-            $due_order_id = snapbook_create_balance_order($order, $item, $balance_due);
-            if ($due_order_id > 0) {
-                snapbook_schedule_balance_reminder($order_id);
-            }
-        }
+    // Balance reminders need no scheduling: the hourly sweep picks up every
+    // booking with an unpaid balance order.
+    if ($paid && $balance_due > 0.01) {
+        snapbook_create_balance_order($order, $item, $balance_due);
+    }
 
+    if ($holds_date) {
         /**
-         * A paid booking row has been saved. Google Calendar sync listens here;
-         * fired last so the booking and its date slot are fully written first.
+         * A booking now holds its date (new, or re-activated). Google Calendar
+         * sync listens here; fired last so the row and date are fully written.
          *
          * @param int $booking_id Row id in the {prefix}fpb_bookings table.
+         * @param int $order_id   Main booking order id.
          */
-        if ($booking_id > 0) {
-            do_action('snapbook_booking_created', $booking_id);
-        }
+        do_action('snapbook_booking_created', $booking_id, $order_id);
+    }
+    if ($newly_paid) {
+        /**
+         * A booking's first payment (deposit or full) has come in.
+         *
+         * @param int $booking_id
+         * @param int $order_id
+         */
+        do_action('snapbook_booking_paid', $booking_id, $order_id);
+    }
+
+    return $booking_id;
+}
+
+/**
+ * A booking was paid for a date that was already taken (or blocked by the
+ * studio). Leave a note on the order and email the studio so one of the two
+ * bookings can be moved.
+ *
+ * @param WC_Order $order
+ * @param string   $date   Y-m-d.
+ * @param string   $reason 'booked' | 'blocked'.
+ */
+function snapbook_flag_date_conflict($order, $date, $reason)
+{
+    $pretty = function_exists('snapbook_email_pretty_date') ? snapbook_email_pretty_date($date) : $date;
+    $note   = $reason === 'blocked'
+        /* translators: %s: session date */
+        ? sprintf(__('Date conflict: %s is blocked in SnapBook → Date Slots, but this booking was paid for it. Please contact the customer to confirm or reschedule.', 'snapbook'), $pretty)
+        /* translators: %s: session date */
+        : sprintf(__('Date conflict: %s already has another booking, but this booking was paid for it too. Please contact the customer to reschedule.', 'snapbook'), $pretty);
+    $order->add_order_note($note);
+
+    $to = sanitize_email((string) get_option('fpb_admin_email', get_option('admin_email')));
+    if ($to !== '' && function_exists('snapbook_email_send')) {
+        $content  = snapbook_email_title(__('Two bookings for one date', 'snapbook'));
+        $content .= snapbook_email_text(esc_html($note));
+        $content .= snapbook_email_button($order->get_edit_order_url(), __('Open the order', 'snapbook'));
+        /* translators: 1: session date, 2: order number */
+        snapbook_email_send($to, sprintf(__('Booking conflict on %1$s (order #%2$s)', 'snapbook'), $pretty, $order->get_order_number()), $content);
     }
 }
 
@@ -669,6 +847,13 @@ function snapbook_on_balance_order_paid($order_id)
     }
 
     $parent_order = wc_get_order($parent_order_id);
+    // The booking was cancelled or refunded before the balance came in: the
+    // money needs handling by hand, not a "completed" booking.
+    if ($parent_order && in_array($parent_order->get_status(), ['cancelled', 'refunded'], true)) {
+        /* translators: %d: main booking order id */
+        $order->add_order_note(sprintf(__('Balance paid, but booking order #%d is cancelled or refunded. Please review and refund if needed.', 'snapbook'), $parent_order_id));
+        return;
+    }
     if ($parent_order && ! in_array($parent_order->get_status(), ['completed', 'cancelled', 'refunded'], true)) {
         $parent_order->set_status('completed');
         $parent_order->save();
@@ -683,6 +868,266 @@ function snapbook_on_balance_order_paid($order_id)
         ['%s'],
         ['%d']
     );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Cancelled / refunded bookings: free the date, void the balance
+═══════════════════════════════════════════════════════════════ */
+add_action('woocommerce_order_status_cancelled', 'snapbook_on_booking_order_voided', 10, 1);
+add_action('woocommerce_order_status_refunded', 'snapbook_on_booking_order_voided', 10, 1);
+function snapbook_on_booking_order_voided($order_id)
+{
+    $order = wc_get_order($order_id);
+    if (! $order || (int) $order->get_meta('_fpb_is_balance_order', true) === 1) {
+        return;
+    }
+
+    global $wpdb;
+    $pfx     = $wpdb->prefix . 'fpb_';
+    $booking = $wpdb->get_row($wpdb->prepare("SELECT id, session_date, status FROM {$pfx}bookings WHERE order_id = %d LIMIT 1", (int) $order_id)); // phpcs:ignore
+    if (! $booking) {
+        return; // Never paid, so it never became a booking.
+    }
+
+    if ($booking->status !== 'cancelled') {
+        $wpdb->update("{$pfx}bookings", ['status' => 'cancelled'], ['id' => (int) $booking->id]); // phpcs:ignore
+    }
+
+    // Nothing left to collect: close the unpaid balance order, which also
+    // stops its reminders and kills its pay link.
+    $due = snapbook_get_balance_order_for($order, false);
+    if ($due && $due->has_status(['pending', 'failed', 'on-hold'])) {
+        $due->update_status('cancelled', __('Booking cancelled, balance no longer due.', 'snapbook'));
+    }
+
+    if (snapbook_release_booking_date((string) $booking->session_date, (int) $order_id)) {
+        /* translators: %s: session date */
+        $order->add_order_note(sprintf(__('Booking cancelled; %s is available again on the booking calendar.', 'snapbook'), snapbook_email_pretty_date((string) $booking->session_date)));
+    }
+
+    /**
+     * A booking was cancelled or refunded (Google Calendar removes its event).
+     *
+     * @param int $booking_id
+     * @param int $order_id
+     */
+    do_action('snapbook_booking_cancelled', (int) $booking->id, (int) $order_id);
+}
+
+/**
+ * WooCommerce expires unpaid orders after "Hold stock (minutes)", but only
+ * for orders its own checkout created. Booking orders left unpaid on the
+ * payment step would otherwise stay payable forever, for a date someone
+ * else may have booked since. Balance orders are never expired.
+ */
+add_filter('woocommerce_cancel_unpaid_order', 'snapbook_cancel_unpaid_booking_orders', 10, 2);
+function snapbook_cancel_unpaid_booking_orders($cancel, $order)
+{
+    if ($cancel || ! $order) {
+        return $cancel;
+    }
+
+    return $order->get_created_via() === 'snapbook' && (int) $order->get_meta('_fpb_is_balance_order', true) !== 1;
+}
+
+// An abandoned booking form being tidied away isn't news for the studio:
+// no "order cancelled" email for booking orders that were never paid.
+add_filter('woocommerce_email_enabled_cancelled_order', 'snapbook_skip_abandoned_cancel_email', 10, 2);
+function snapbook_skip_abandoned_cancel_email($enabled, $order)
+{
+    if ($enabled && $order && is_a($order, 'WC_Order') && $order->get_created_via() === 'snapbook' && ! $order->get_date_paid()) {
+        return false;
+    }
+
+    return $enabled;
+}
+
+// The hidden booking product only makes sense with a booking attached,
+// which the booking form adds; block ?add-to-cart=<id> and the like.
+add_filter('woocommerce_add_to_cart_validation', 'snapbook_block_direct_booking_product', 10, 2);
+function snapbook_block_direct_booking_product($passed, $product_id)
+{
+    if ((int) $product_id > 0 && (int) $product_id === (int) get_option('fpb_wc_product_id', 0)) {
+        wc_add_notice(__('Please use the booking form to book a session.', 'snapbook'), 'error');
+        return false;
+    }
+
+    return $passed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Offline payments (bank transfer, cheque, cash on delivery)
+═══════════════════════════════════════════════════════════════ */
+
+// WooCommerce marks cash-on-delivery orders "processing" (paid) because goods
+// ship before the money arrives. For a booking nothing has been received yet:
+// treat it like a bank transfer — "awaiting payment", date held.
+add_filter('woocommerce_cod_process_payment_order_status', 'snapbook_cod_booking_status', 10, 2);
+function snapbook_cod_booking_status($status, $order = null)
+{
+    if ($order && is_a($order, 'WC_Order') && snapbook_is_booking_order($order)) {
+        return 'on-hold';
+    }
+
+    return $status;
+}
+
+/**
+ * Hourly housekeeping: expire unpaid offline bookings (SnapBook → Settings →
+ * "Cancel unpaid bank-transfer bookings after N days") and retry failed
+ * Google Calendar syncs. Always scheduled while the plugin is active.
+ */
+add_action('init', 'snapbook_schedule_maintenance');
+function snapbook_schedule_maintenance()
+{
+    if (! wp_next_scheduled('snapbook_maintenance')) {
+        wp_schedule_event(time() + 5 * MINUTE_IN_SECONDS, 'hourly', 'snapbook_maintenance');
+    }
+}
+
+add_action('snapbook_maintenance', 'snapbook_run_maintenance');
+function snapbook_run_maintenance()
+{
+    snapbook_expire_unpaid_offline_bookings();
+    if (function_exists('snapbook_gcal_run_retries')) {
+        snapbook_gcal_run_retries();
+    }
+}
+
+/**
+ * Cancel booking orders still on hold (unpaid bank transfer / cheque / cash)
+ * N days after they were placed. Cancelling frees the date
+ * (snapbook_on_booking_order_voided).
+ *
+ * @return int Orders cancelled.
+ */
+function snapbook_expire_unpaid_offline_bookings()
+{
+    $days = (int) snapbook_opt('fpb_offline_hold_days');
+    if ($days < 1) {
+        return 0;
+    }
+
+    $orders = wc_get_orders([
+        'limit'        => 50,
+        'status'       => ['on-hold'],
+        'date_created' => '<' . (time() - $days * DAY_IN_SECONDS),
+        'return'       => 'objects',
+    ]);
+
+    $count = 0;
+    foreach ((array) $orders as $order) {
+        if (! $order || (int) $order->get_meta('_fpb_is_balance_order', true) === 1 || ! snapbook_is_booking_order($order)) {
+            continue;
+        }
+        $order->update_status('cancelled', sprintf(
+            /* translators: %d: number of days */
+            _n('Booking cancelled automatically: no payment received within %d day.', 'Booking cancelled automatically: no payment received within %d days.', $days, 'snapbook'),
+            $days
+        ));
+        $count++;
+    }
+
+    return $count;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Payment fee: none for fee-free methods
+   ───────────────────────────────────────────────────────────────
+   The booking form places its order before the customer picks how to pay,
+   so the fee is included up front. When they then pay with a method the
+   studio exempted (bank transfer by default), the fee comes off before the
+   payment is processed — on the order-pay page, and on the classic checkout.
+═══════════════════════════════════════════════════════════════ */
+add_action('woocommerce_before_pay_action', 'snapbook_fee_on_pay_action', 5, 1);
+function snapbook_fee_on_pay_action($order)
+{
+    // phpcs:ignore WordPress.Security.NonceVerification.Missing -- WooCommerce verified the woocommerce-pay nonce before this hook.
+    $gateway = isset($_POST['payment_method']) ? sanitize_key(wp_unslash($_POST['payment_method'])) : '';
+    snapbook_strip_fee_for_gateway($order, $gateway);
+}
+
+add_action('woocommerce_checkout_order_processed', 'snapbook_fee_on_checkout', 5, 3);
+function snapbook_fee_on_checkout($order_id, $posted_data = [], $order = null)
+{
+    $order = $order && is_a($order, 'WC_Order') ? $order : wc_get_order($order_id);
+    if ($order) {
+        snapbook_strip_fee_for_gateway($order, (string) $order->get_payment_method());
+    }
+}
+
+/**
+ * Remove the payment fee from an unpaid booking or balance order when the
+ * chosen gateway is fee-free. The deposit is re-split from the fee-free
+ * total. Returns whether anything changed.
+ *
+ * @param WC_Order $order
+ * @param string   $gateway_id
+ * @param bool     $force      Remove it whatever the gateway: the studio is
+ *                             recording money it received directly.
+ */
+function snapbook_strip_fee_for_gateway($order, $gateway_id, $force = false)
+{
+    if (! $order || ! is_a($order, 'WC_Order') || $order->is_paid() || (! $force && snapbook_fee_applies_to_gateway($gateway_id))) {
+        return false;
+    }
+    $gateway_id = sanitize_key((string) $gateway_id);
+
+    // Balance order: its share of the fee comes off it, and off the booking.
+    if ((int) $order->get_meta('_fpb_is_balance_order', true) === 1) {
+        $share = round((float) $order->get_meta('_fpb_fee_amount', true), 2);
+        $item  = current($order->get_items());
+        if ($share <= 0 || ! $item) {
+            return false;
+        }
+        $item->set_subtotal(max(0, (float) $item->get_subtotal() - $share));
+        $item->set_total(max(0, (float) $item->get_total() - $share));
+        $item->save();
+        $order->update_meta_data('_fpb_balance_due', max(0, round((float) $order->get_meta('_fpb_balance_due', true) - $share, 2)));
+        $order->update_meta_data('_fpb_fee_amount', 0);
+        $order->calculate_totals(false);
+        /* translators: 1: fee amount, 2: payment method id */
+        $order->add_order_note(sprintf(__('Payment fee of %1$s removed (paid with %2$s).', 'snapbook'), wc_format_decimal($share, 2), $gateway_id));
+        $order->save();
+
+        $parent      = wc_get_order((int) $order->get_meta('_fpb_parent_order_id', true));
+        $parent_item = $parent ? snapbook_get_booking_item($parent) : null;
+        if ($parent_item) {
+            $parent_item->update_meta_data('_fpb_total', round((float) $parent_item->get_meta('_fpb_total') - $share, 2));
+            $parent_item->update_meta_data('_fpb_balance_due', max(0, round((float) $parent_item->get_meta('_fpb_balance_due') - $share, 2)));
+            $parent_item->update_meta_data('_fpb_fee_amount', max(0, round((float) $parent_item->get_meta('_fpb_fee_amount') - $share, 2)));
+            $parent_item->save();
+            global $wpdb;
+            $wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}fpb_bookings SET total = GREATEST(0, total - %f) WHERE order_id = %d", $share, (int) $parent->get_id())); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        }
+        return true;
+    }
+
+    // Main booking order, before its first payment.
+    $item = snapbook_get_booking_item($order);
+    $fee  = $item ? round((float) $item->get_meta('_fpb_fee_amount'), 2) : 0;
+    if (! $item || $fee <= 0) {
+        return false;
+    }
+    $pct         = max(1, min(100, (int) $item->get_meta('_fpb_deposit_pct')));
+    $total       = max(0, round((float) $item->get_meta('_fpb_total') - $fee, 2));
+    $deposit     = $pct >= 100 ? $total : round($total * $pct / 100, 2);
+    $discount_in = max(0, (float) $item->get_subtotal() - (float) $item->get_total());
+
+    $item->set_subtotal($deposit + $discount_in);
+    $item->set_total($deposit);
+    $item->update_meta_data('_fpb_total', $total);
+    $item->update_meta_data('_fpb_deposit', $deposit);
+    $item->update_meta_data('_fpb_balance_due', max(0, round($total - $deposit, 2)));
+    $item->update_meta_data('_fpb_fee_amount', 0);
+    $item->update_meta_data('_fpb_fee_pct', 0);
+    $item->save();
+    $order->calculate_totals();
+    /* translators: 1: fee amount, 2: payment method id */
+    $order->add_order_note(sprintf(__('Payment fee of %1$s removed (paid with %2$s).', 'snapbook'), wc_format_decimal($fee, 2), $gateway_id));
+    $order->save();
+
+    return true;
 }
 
 function snapbook_cleanup_checkout_draft_orders($paid_order)
@@ -752,147 +1197,547 @@ function snapbook_cleanup_checkout_draft_orders($paid_order)
     }
 }
 
+/**
+ * Id of the balance order already created for a booking, or 0.
+ *
+ * Reads the database, not the caller's order object: WooCommerce renders
+ * the confirmation email with its own copy of the order, loaded before
+ * snapbook_on_paid_order() stored _fpb_due_order_id, and trusting that
+ * copy used to create a second balance order for every deposit.
+ */
+function snapbook_find_balance_order_id($parent_id)
+{
+    $parent_id = (int) $parent_id;
+    $parent    = $parent_id > 0 ? wc_get_order($parent_id) : null;
+    $due_id    = $parent ? (int) $parent->get_meta('_fpb_due_order_id', true) : 0;
+    if ($due_id > 0 && wc_get_order($due_id)) {
+        return $due_id;
+    }
+
+    $ids = wc_get_orders([
+        'limit'      => 1,
+        'return'     => 'ids',
+        'orderby'    => 'ID',
+        'order'      => 'ASC',
+        'status'     => array_keys(wc_get_order_statuses()),
+        'meta_key'   => '_fpb_parent_order_id', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+        'meta_value' => $parent_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+    ]);
+
+    return $ids ? (int) $ids[0] : 0;
+}
+
 function snapbook_create_balance_order($parent_order, $parent_item, $balance_due)
 {
     if (! $parent_order || $balance_due <= 0) {
         return 0;
     }
 
-    $existing_due_order_id = (int) $parent_order->get_meta('_fpb_due_order_id', true);
-    if ($existing_due_order_id > 0) {
-        return $existing_due_order_id;
-    }
-
     $fpb_product = (int) get_option('fpb_wc_product_id', 0);
-    if (! $fpb_product) {
-        return 0;
-    }
-
-    $customer_id = (int) $parent_order->get_customer_id();
-    $due_order = wc_create_order(['customer_id' => $customer_id]);
-    if (! $due_order || is_wp_error($due_order)) {
-        return 0;
-    }
-
-    $product = wc_get_product($fpb_product);
+    $product     = $fpb_product > 0 ? wc_get_product($fpb_product) : null;
     if (! $product) {
         return 0;
     }
 
-    $line_item = new WC_Order_Item_Product();
-    $line_item->set_product($product);
-    $line_item->set_quantity(1);
-    $line_item->set_subtotal($balance_due);
-    $line_item->set_total($balance_due);
-    $line_item->add_meta_data('_fpb_is_balance_item', 1, true);
-    $line_item->add_meta_data('_fpb_parent_order_id', (int) $parent_order->get_id(), true);
-    $line_item->add_meta_data('_fpb_package_name', (string) $parent_item->get_meta('_fpb_package_name'), true);
-    $line_item->add_meta_data('_fpb_session_date', (string) $parent_item->get_meta('_fpb_session_date'), true);
-    $due_order->add_item($line_item);
-
-    $due_order->set_currency($parent_order->get_currency());
-    $due_order->set_address($parent_order->get_address('billing'), 'billing');
-    $due_order->set_address($parent_order->get_address('shipping'), 'shipping');
-    $due_order->update_meta_data('_fpb_is_balance_order', 1);
-    $due_order->update_meta_data('_fpb_parent_order_id', (int) $parent_order->get_id());
-    $due_order->update_meta_data('_fpb_balance_due', $balance_due);
-    $due_order->update_meta_data('_fpb_package_name', (string) $parent_item->get_meta('_fpb_package_name'));
-    $due_order->update_meta_data('_fpb_session_date', (string) $parent_item->get_meta('_fpb_session_date'));
-    $due_order->calculate_totals(false);
-    $due_order->set_status('pending');
-    $due_order->save();
-
-    $parent_order->update_meta_data('_fpb_due_order_id', (int) $due_order->get_id());
-    $parent_order->save();
-
-    return (int) $due_order->get_id();
-}
-
-add_action('fpb_send_balance_reminder_event', 'snapbook_send_scheduled_balance_reminder', 10, 1);
-function snapbook_send_scheduled_balance_reminder($order_id)
-{
-    if ((int) get_option('fpb_enable_balance_reminders', 0) !== 1) {
-        return;
-    }
-
-    snapbook_send_balance_reminder_email((int) $order_id, false);
-}
-
-/**
- * When a booking's balance reminder should go out: N days before the session
- * (option fpb_balance_reminder_days_before, default 1), at a fixed hour in the
- * site's timezone.
- *
- * A fixed morning hour is used rather than "N × 24h before the shoot starts"
- * because session_time is free text and often absent — this way the reminder
- * never lands at midnight and the studio knows when it goes out.
- *
- * Returns 0 when the shoot day is already over, so nothing gets scheduled.
- */
-function snapbook_balance_reminder_timestamp($order_id)
-{
-    $days = max(0, (int) get_option('fpb_balance_reminder_days_before', 1));
-    $hour = max(0, min(23, (int) apply_filters('snapbook_balance_reminder_hour', 9)));
-    $now  = time();
-
-    $order = wc_get_order((int) $order_id);
-    $meta  = $order ? snapbook_get_order_booking_meta($order) : ['session_date' => ''];
-    $date  = trim((string) $meta['session_date']);
-
-    // No session date to anchor to — shouldn't happen, since the booking form
-    // requires a date. Fall back to a next-day nudge rather than silently
-    // leaving an unpaid balance unchased.
-    if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-        return $now + DAY_IN_SECONDS;
-    }
+    // Payment gateways can report the same payment twice at once (IPN or
+    // webhook plus the customer's return). A named lock makes the
+    // check-then-create below atomic per booking.
+    global $wpdb;
+    $parent_id = (int) $parent_order->get_id();
+    $lock      = 'snapbook_balance_' . $parent_id;
+    $locked    = (int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 10)', $lock)) === 1; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
     try {
-        $tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
+        $existing = snapbook_find_balance_order_id($parent_id);
+        if ($existing > 0) {
+            snapbook_store_balance_order_id($parent_id, $existing);
+            return $existing;
+        }
 
-        // Nothing left to chase once the shoot day has passed.
-        $shoot_day_end = new DateTime($date, $tz);
-        $shoot_day_end->setTime(23, 59, 59);
-        if ($shoot_day_end->getTimestamp() < $now) {
+        $due_order = wc_create_order(['customer_id' => (int) $parent_order->get_customer_id()]);
+        if (! $due_order || is_wp_error($due_order)) {
             return 0;
         }
 
-        $send = new DateTime($date, $tz);
-        $send->modify('-' . $days . ' day');
-        $send->setTime($hour, 0, 0);
+        $line_item = new WC_Order_Item_Product();
+        $line_item->set_product($product);
+        $line_item->set_quantity(1);
+        $line_item->set_subtotal($balance_due);
+        $line_item->set_total($balance_due);
+        $line_item->add_meta_data('_fpb_is_balance_item', 1, true);
+        $line_item->add_meta_data('_fpb_parent_order_id', $parent_id, true);
+        $line_item->add_meta_data('_fpb_package_name', (string) $parent_item->get_meta('_fpb_package_name'), true);
+        $line_item->add_meta_data('_fpb_session_date', (string) $parent_item->get_meta('_fpb_session_date'), true);
+        $due_order->add_item($line_item);
+
+        $due_order->set_currency($parent_order->get_currency());
+        $due_order->set_address($parent_order->get_address('billing'), 'billing');
+        $due_order->set_address($parent_order->get_address('shipping'), 'shipping');
+        $due_order->update_meta_data('_fpb_is_balance_order', 1);
+        $due_order->update_meta_data('_fpb_parent_order_id', $parent_id);
+        $due_order->update_meta_data('_fpb_balance_due', $balance_due);
+        $due_order->update_meta_data('_fpb_package_name', (string) $parent_item->get_meta('_fpb_package_name'));
+        $due_order->update_meta_data('_fpb_session_date', (string) $parent_item->get_meta('_fpb_session_date'));
+        // This order's share of the payment fee, so it can come off if the
+        // balance is paid with a fee-free method (snapbook_strip_fee_for_gateway()).
+        $parent_total = (float) $parent_item->get_meta('_fpb_total');
+        $parent_fee   = (float) $parent_item->get_meta('_fpb_fee_amount');
+        if ($parent_fee > 0 && $parent_total > 0) {
+            $due_order->update_meta_data('_fpb_fee_amount', round($parent_fee * $balance_due / $parent_total, 2));
+        }
+        $due_date = (string) $parent_order->get_meta('_fpb_balance_due_date', true);
+        if ($due_date === '' && function_exists('snapbook_balance_due_date')) {
+            $due_date = snapbook_balance_due_date((string) $parent_item->get_meta('_fpb_session_date'));
+        }
+        if ($due_date !== '') {
+            $due_order->update_meta_data('_fpb_balance_due_date', $due_date);
+        }
+        $due_order->calculate_totals(false);
+        $due_order->set_status('pending');
+        $due_order->save();
+
+        snapbook_store_balance_order_id($parent_id, (int) $due_order->get_id());
+
+        return (int) $due_order->get_id();
+    } finally {
+        if ($locked) {
+            $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        }
+    }
+}
+
+/**
+ * Point the booking's main order at its balance order. Written through a
+ * freshly loaded copy so a stale in-memory order can't add a second meta row.
+ */
+function snapbook_store_balance_order_id($parent_id, $due_id)
+{
+    $parent = wc_get_order((int) $parent_id);
+    if ($parent && (int) $parent->get_meta('_fpb_due_order_id', true) !== (int) $due_id) {
+        $parent->update_meta_data('_fpb_due_order_id', (int) $due_id);
+        $parent->save();
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Remaining-balance reminders
+   ───────────────────────────────────────────────────────────────
+   Reminders used to be one WP-Cron event per order, queued when the
+   deposit was paid. That missed every booking made while reminders were
+   off, ignored later changes to the settings, and sent nothing at all on
+   hosts where WP-Cron doesn't run.
+
+   Now an hourly sweep looks at every booking with an unpaid balance and
+   works out from the current settings, and from what has already been
+   sent, whether a reminder is due (snapbook_balance_reminder_next()).
+   If WP-Cron isn't running, the sweep runs at the end of an ordinary
+   page request instead (snapbook_reminder_sweep_fallback()).
+═══════════════════════════════════════════════════════════════ */
+add_action('init', 'snapbook_schedule_reminder_sweep');
+function snapbook_schedule_reminder_sweep()
+{
+    // Retire the old scheduler's per-order events, once.
+    if ((int) get_option('fpb_reminder_engine', 0) < 2) {
+        wp_unschedule_hook('fpb_send_balance_reminder_event');
+        update_option('fpb_reminder_engine', 2);
+    }
+
+    $next = wp_next_scheduled('snapbook_balance_reminder_sweep');
+    if (snapbook_balance_reminders_active()) {
+        if (! $next) {
+            wp_schedule_event(time() + MINUTE_IN_SECONDS, 'hourly', 'snapbook_balance_reminder_sweep');
+        }
+    } elseif ($next) {
+        wp_clear_scheduled_hook('snapbook_balance_reminder_sweep');
+    }
+}
+
+add_action('snapbook_balance_reminder_sweep', 'snapbook_run_scheduled_reminder_sweep');
+function snapbook_run_scheduled_reminder_sweep()
+{
+    snapbook_run_balance_reminders('cron');
+}
+
+// An event queued by the old scheduler can still fire during the request
+// that upgrades the plugin; hand it to the sweep, which applies the rules.
+add_action('fpb_send_balance_reminder_event', 'snapbook_send_scheduled_balance_reminder', 10, 1);
+function snapbook_send_scheduled_balance_reminder($order_id)
+{
+    snapbook_run_balance_reminders('cron');
+}
+
+/**
+ * Safety net for hosts where WP-Cron never fires (DISABLE_WP_CRON without a
+ * server cron job, or blocked loopback requests). When the last sweep is
+ * more than 90 minutes old, run it at the end of this request, after the
+ * page has been sent to the visitor where the server supports that.
+ */
+add_action('shutdown', 'snapbook_reminder_sweep_fallback', 100);
+function snapbook_reminder_sweep_fallback()
+{
+    if (
+        wp_doing_cron() || wp_doing_ajax() || wp_installing()
+        || (defined('REST_REQUEST') && REST_REQUEST)
+        || (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST)
+        || (defined('WP_CLI') && WP_CLI)
+    ) {
+        return;
+    }
+    if (! snapbook_balance_reminders_active()) {
+        return;
+    }
+
+    $last = snapbook_reminder_last_sweep();
+    if (time() - $last['ts'] < 90 * MINUTE_IN_SECONDS) {
+        return;
+    }
+
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    } elseif (function_exists('litespeed_finish_request')) {
+        litespeed_finish_request();
+    }
+    ignore_user_abort(true);
+
+    snapbook_run_balance_reminders('fallback');
+}
+
+/**
+ * Summary of the most recent sweep (see snapbook_run_balance_reminders()).
+ */
+function snapbook_reminder_last_sweep()
+{
+    $last = get_option('fpb_reminder_last_sweep', []);
+    $last = wp_parse_args(is_array($last) ? $last : [], ['ts' => 0, 'trigger' => '', 'checked' => 0, 'sent' => 0, 'failed' => 0]);
+    $last['ts'] = (int) $last['ts'];
+
+    return $last;
+}
+
+/**
+ * Cross-request lock so two sweeps (WP-Cron and the fallback, say) never run
+ * at once and email the same customer twice. INSERT IGNORE on the options
+ * table is atomic, unlike a transient. A lock older than 10 minutes belongs
+ * to a request that died, and is taken over.
+ */
+function snapbook_reminder_lock_acquire()
+{
+    global $wpdb;
+    $now = time();
+
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- atomic lock, must bypass the options cache.
+    if ($wpdb->query($wpdb->prepare("INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')", 'fpb_reminder_sweep_lock', $now))) {
+        return true;
+    }
+
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- see above.
+    $held = (int) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'fpb_reminder_sweep_lock'));
+    if ($held > $now - 10 * MINUTE_IN_SECONDS) {
+        return false;
+    }
+
+    // Stale. Take it over, unless another request just did.
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- see above.
+    return (bool) $wpdb->query($wpdb->prepare("UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s", $now, 'fpb_reminder_sweep_lock', $held));
+}
+
+function snapbook_reminder_lock_release()
+{
+    global $wpdb;
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- see snapbook_reminder_lock_acquire().
+    $wpdb->delete($wpdb->options, ['option_name' => 'fpb_reminder_sweep_lock']);
+}
+
+/**
+ * Check every booking with an unpaid balance and send the reminders that are
+ * due. The summary is returned and stored in fpb_reminder_last_sweep for the
+ * settings screen.
+ *
+ * @param string $trigger 'cron', 'fallback' or 'manual'.
+ * @return array
+ */
+function snapbook_run_balance_reminders($trigger = 'cron')
+{
+    $result = ['ts' => time(), 'trigger' => (string) $trigger, 'checked' => 0, 'sent' => 0, 'failed' => 0];
+    if (! snapbook_balance_reminders_active()) {
+        $result['skipped'] = 'disabled';
+        return $result;
+    }
+    if (! snapbook_reminder_lock_acquire()) {
+        $result['skipped'] = 'locked';
+        return $result;
+    }
+
+    // Record the run up front: a sweep that dies half-way must not be
+    // retried by the fallback on every page view.
+    update_option('fpb_reminder_last_sweep', $result);
+
+    $limit = max(1, (int) apply_filters('snapbook_balance_reminder_batch_size', 25));
+    $now   = time();
+    try {
+        foreach (snapbook_balance_reminder_candidates() as $order_id) {
+            $order = wc_get_order($order_id);
+            if (! $order) {
+                continue;
+            }
+            $result['checked']++;
+
+            $next = snapbook_balance_reminder_next($order, $now);
+            if ($next['ts'] < 1 || $next['ts'] > $now) {
+                continue;
+            }
+
+            if (snapbook_send_balance_reminder_email($order_id, false, $next['type'])) {
+                $result['sent']++;
+            } else {
+                // Back off instead of failing again every hour.
+                $result['failed']++;
+                $order->update_meta_data('_fpb_reminder_fail_ts', $now);
+                $order->save();
+            }
+
+            // The rest go out on the next sweep.
+            if ($result['sent'] + $result['failed'] >= $limit) {
+                break;
+            }
+        }
+    } finally {
+        snapbook_reminder_lock_release();
+    }
+
+    update_option('fpb_reminder_last_sweep', $result);
+
+    return $result;
+}
+
+/**
+ * Main-order ids of bookings that still have a balance to pay.
+ *
+ * @return int[]
+ */
+function snapbook_balance_reminder_candidates()
+{
+    global $wpdb;
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- custom bookings table, no user input.
+    $ids = $wpdb->get_col("SELECT DISTINCT order_id FROM {$wpdb->prefix}fpb_bookings WHERE order_id > 0 AND status NOT IN ('cancelled', 'completed') AND total - deposit > 0.01 ORDER BY order_id ASC");
+
+    return array_map('intval', (array) $ids);
+}
+
+/**
+ * The balance order a reminder would chase, or null when there's nothing to
+ * chase: the balance is paid, on hold or cancelled, or the booking's own
+ * order is no longer active. "Awaiting payment" = WooCommerce's needs_payment()
+ * (pending or failed), i.e. exactly when the pay link in the email works.
+ */
+function snapbook_balance_reminder_due_order($parent_order)
+{
+    if (! $parent_order || (int) $parent_order->get_meta('_fpb_is_balance_order', true) === 1) {
+        return null;
+    }
+    if (! in_array($parent_order->get_status(), ['processing', 'completed'], true)) {
+        return null;
+    }
+
+    $due = snapbook_get_balance_order_for($parent_order, false);
+
+    return ($due && $due->needs_payment()) ? $due : null;
+}
+
+/**
+ * Start of the photoshoot day in the site's timezone, or null without a date.
+ */
+function snapbook_balance_reminder_shoot_day($order)
+{
+    $date = trim((string) snapbook_get_order_booking_meta($order)['session_date']);
+    if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return null;
+    }
+
+    try {
+        return new DateTimeImmutable($date . ' 00:00:00', wp_timezone());
     } catch (Exception $e) {
+        return null;
+    }
+}
+
+/**
+ * Reminders sent before 1.4.0 only stored a site-time MySQL date.
+ */
+function snapbook_balance_reminder_legacy_ts($order)
+{
+    $legacy = (string) $order->get_meta('_fpb_last_balance_reminder_sent', true);
+    if ($legacy === '') {
         return 0;
     }
 
-    // Booked inside the reminder window (or on the day itself): still send one,
-    // a few minutes out, so the event is never scheduled in the past.
-    return max($send->getTimestamp(), $now + (15 * MINUTE_IN_SECONDS));
+    try {
+        return (new DateTimeImmutable($legacy, wp_timezone()))->getTimestamp();
+    } catch (Exception $e) {
+        return 0;
+    }
 }
 
-function snapbook_schedule_balance_reminder($order_id)
+/**
+ * When the customer last heard about the balance: the latest reminder
+ * (automatic or sent by hand), else when the deposit was paid, since the
+ * booking confirmation already carries the pay link.
+ */
+function snapbook_balance_reminder_last_contact($order)
 {
-    if ((int) get_option('fpb_enable_balance_reminders', 0) !== 1) {
-        return;
+    $ts = (int) $order->get_meta('_fpb_reminder_last_ts', true);
+    if ($ts < 1) {
+        $ts = snapbook_balance_reminder_legacy_ts($order);
     }
+    $paid = $order->get_date_paid() ?: $order->get_date_created();
 
-    $order_id = (int) $order_id;
-    if ($order_id < 1) {
-        return;
-    }
-
-    $timestamp = wp_next_scheduled('fpb_send_balance_reminder_event', [$order_id]);
-    if ($timestamp) {
-        wp_unschedule_event($timestamp, 'fpb_send_balance_reminder_event', [$order_id]);
-    }
-
-    $when = snapbook_balance_reminder_timestamp($order_id);
-    if ($when < 1) {
-        return;
-    }
-
-    wp_schedule_single_event($when, 'fpb_send_balance_reminder_event', [$order_id]);
+    return max($ts, $paid ? (int) $paid->getTimestamp() : 0);
 }
 
-function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
+/**
+ * Move a time into the daytime window reminders go out in (09:00–21:00 site
+ * time; filter snapbook_balance_reminder_window) so no one is emailed at 3 a.m.
+ */
+function snapbook_balance_reminder_in_window($ts)
+{
+    $window = (array) apply_filters('snapbook_balance_reminder_window', [9, 21]);
+    $start  = max(0, min(23, (int) ($window[0] ?? 9)));
+    $end    = max(1, min(24, (int) ($window[1] ?? 21)));
+    if ($start >= $end) {
+        return (int) $ts;
+    }
+
+    $local = (new DateTimeImmutable('@' . (int) $ts))->setTimezone(wp_timezone());
+    $hour  = (int) $local->format('G');
+    if ($hour < $start) {
+        return $local->setTime($start, 0)->getTimestamp();
+    }
+    if ($hour >= $end) {
+        return $local->modify('+1 day')->setTime($start, 0)->getTimestamp();
+    }
+
+    return (int) $ts;
+}
+
+/**
+ * The next automatic reminder for a booking under the current settings:
+ * ['ts' => unix time, 'type' => 'before'|'repeat']. ts 0 = none; a ts in the
+ * past means it's due now. Read-only, so the admin screens use it too.
+ */
+function snapbook_balance_reminder_next($order, $now = 0)
+{
+    $none = ['ts' => 0, 'type' => ''];
+    $now  = $now > 0 ? (int) $now : time();
+    $cfg  = snapbook_get_balance_reminder_settings();
+    if ((! $cfg['before_enable'] && ! $cfg['repeat_enable']) || ! snapbook_balance_reminder_due_order($order)) {
+        return $none;
+    }
+
+    // Never two reminders within 12 hours (the deposit confirmation counts,
+    // since it carries the pay link), and wait 6 hours after a failed send.
+    $last     = snapbook_balance_reminder_last_contact($order);
+    $earliest = $last + (int) apply_filters('snapbook_balance_reminder_min_gap', 12 * HOUR_IN_SECONDS);
+    $failed   = (int) $order->get_meta('_fpb_reminder_fail_ts', true);
+    if ($failed > 0) {
+        $earliest = max($earliest, $failed + 6 * HOUR_IN_SECONDS);
+    }
+
+    $shoot     = snapbook_balance_reminder_shoot_day($order);
+    $shoot_end = $shoot ? $shoot->setTime(23, 59, 59)->getTimestamp() : 0;
+    $options   = [];
+
+    // One reminder N days before the shoot, while the shoot is still ahead.
+    if ($cfg['before_enable'] && $shoot && $shoot_end >= $now) {
+        $send_at = $shoot->modify('-' . $cfg['days_before'] . ' days')->setTime($cfg['hour'], 0)->getTimestamp();
+        $sent    = (int) $order->get_meta('_fpb_reminder_before_sent', true) > 0;
+        // The old scheduler's single automatic reminder counts as this one
+        // when it went out inside the window.
+        if (! $sent && (int) $order->get_meta('_fpb_reminder_last_ts', true) < 1 && $order->get_meta('_fpb_last_balance_reminder_mode', true) === 'automatic') {
+            $sent = snapbook_balance_reminder_legacy_ts($order) >= $send_at;
+        }
+        if (! $sent) {
+            $ts = snapbook_balance_reminder_in_window(max($send_at, $earliest));
+            if ($ts <= $shoot_end) {
+                $options[] = ['ts' => $ts, 'type' => 'before'];
+            }
+        }
+    }
+
+    // Every N days until paid, counted from the last reminder or the deposit.
+    // repeat_since keeps a freshly enabled schedule from emailing every old
+    // booking at once.
+    $repeat_count = (int) $order->get_meta('_fpb_reminder_repeat_count', true);
+    if ($cfg['repeat_enable'] && ($cfg['repeat_max'] < 1 || $repeat_count < $cfg['repeat_max'])) {
+        $anchor = max($last, $cfg['repeat_since']);
+        $ts     = snapbook_balance_reminder_in_window(max($anchor + $cfg['repeat_days'] * DAY_IN_SECONDS, $earliest));
+        // "Stop once the shoot has passed": nothing once the day is over, and
+        // nothing that would only go out after it.
+        if (! ($cfg['repeat_stop_after_shoot'] && $shoot && max($ts, $now) > $shoot_end)) {
+            $options[] = ['ts' => $ts, 'type' => 'repeat'];
+        }
+    }
+
+    if (! $options) {
+        return $none;
+    }
+
+    // Earliest wins; on a tie, the before-the-shoot one, so it's marked sent.
+    usort($options, static function ($a, $b) {
+        return ($a['ts'] <=> $b['ts']) ?: strcmp($a['type'], $b['type']);
+    });
+
+    return $options[0];
+}
+
+/**
+ * Snapshot for the settings screen: the last sweep, WP-Cron health, and the
+ * bookings with an unpaid balance.
+ */
+function snapbook_balance_reminder_status()
+{
+    $now         = time();
+    $outstanding = 0;
+    $scheduled   = 0;
+    $upcoming    = null;
+
+    foreach (snapbook_balance_reminder_candidates() as $order_id) {
+        $order = wc_get_order($order_id);
+        if (! $order || ! snapbook_balance_reminder_due_order($order)) {
+            continue;
+        }
+        $outstanding++;
+
+        $next = snapbook_balance_reminder_next($order, $now);
+        if ($next['ts'] < 1) {
+            continue;
+        }
+        $scheduled++;
+        if (! $upcoming || $next['ts'] < $upcoming['ts']) {
+            $upcoming = $next + [
+                'order_id' => (int) $order_id,
+                'name'     => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
+            ];
+        }
+    }
+
+    return [
+        'last'          => snapbook_reminder_last_sweep(),
+        'cron_disabled' => defined('DISABLE_WP_CRON') && DISABLE_WP_CRON,
+        'next_sweep'    => (int) wp_next_scheduled('snapbook_balance_reminder_sweep'),
+        'outstanding'   => $outstanding,
+        'scheduled'     => $scheduled,
+        'upcoming'      => $upcoming,
+    ];
+}
+
+/**
+ * Email the customer a reminder to pay their remaining balance.
+ *
+ * @param int    $parent_order_id The booking's main (deposit) order.
+ * @param bool   $manual          Sent by the studio from the bookings screen.
+ * @param string $type            Automatic schedule that sent it: 'before' | 'repeat'.
+ */
+function snapbook_send_balance_reminder_email($parent_order_id, $manual = false, $type = '')
 {
     $parent_order = wc_get_order((int) $parent_order_id);
     if (! $parent_order) {
@@ -905,11 +1750,9 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
     }
 
     $due_order = wc_get_order($due_order_id);
-    if (! $due_order) {
-        return false;
-    }
-
-    if (in_array($due_order->get_status(), ['processing', 'completed'], true)) {
+    // Only while the pay link actually works (pending/failed); not once the
+    // balance is paid, on hold, cancelled or refunded.
+    if (! $due_order || ! $due_order->needs_payment()) {
         return false;
     }
 
@@ -923,8 +1766,9 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
         $name = __('Customer', 'snapbook');
     }
 
-    $subject = get_option('fpb_balance_reminder_subject', __('Payment reminder for your booking', 'snapbook'));
-    $template = get_option('fpb_balance_reminder_template', snapbook_balance_reminder_default_template());
+    $reminder_cfg = snapbook_get_balance_reminder_settings();
+    $subject      = $reminder_cfg['subject'];
+    $template     = $reminder_cfg['template'];
 
     $currency = $parent_order->get_currency();
     $symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol($currency) : snapbook_get_currency_symbol();
@@ -937,20 +1781,31 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
     if ($session_date === '') {
         $session_date = (string) $parent_order->get_meta('_fpb_billing_event_date', true);
     }
+    // Same "September 25, 2026" form as the booking confirmation.
+    $session_date = snapbook_email_pretty_date($session_date);
     // Balance orders copy the package and date across but not the add-ons,
     // so those come from the parent order's booking line item.
     $addons = (string) snapbook_get_order_booking_meta($parent_order)['addons'];
 
     $pay_link = $due_order->get_checkout_payment_url();
-    $message = strtr((string) $template, [
+    $due_by   = (string) $due_order->get_meta('_fpb_balance_due_date', true);
+    if ($due_by === '') {
+        $due_by = (string) $parent_order->get_meta('_fpb_balance_due_date', true);
+    }
+    $due_by = $due_by !== '' ? snapbook_email_pretty_date($due_by) : '';
+    // One map for the subject and the message, so every placeholder works in both.
+    $placeholders = [
+        '{balance_due_date}' => $due_by,
         '{customer_name}' => $name,
         '{balance_amount}' => $balance_amount,
         '{session_date}' => $session_date ?: __('N/A', 'snapbook'),
         '{package_name}' => $package_name,
         '{addons}' => $addons !== '' ? $addons : __('None', 'snapbook'),
         '{pay_link}' => $pay_link,
-        '{order_id}' => '#' . (int) $parent_order->get_id(),
-    ]);
+        '{order_id}' => '#' . $parent_order->get_order_number(),
+    ];
+    $subject = strtr((string) $subject, $placeholders);
+    $message = strtr((string) $template, $placeholders);
 
     // Branded shell: the admin's wording, then the booking facts and a single
     // obvious way to pay.
@@ -962,6 +1817,7 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
         ['label' => __('Package', 'snapbook'), 'value' => $package_name],
         ['label' => __('Add-ons', 'snapbook'), 'value' => $addons],
         ['label' => __('Date', 'snapbook'), 'value' => $session_date, 'strong' => true],
+        ['label' => __('Balance due by', 'snapbook'), 'value' => $due_by],
         ['label' => __('Booking reference', 'snapbook'), 'value' => '#' . $parent_order->get_order_number()],
     ]);
     if ($facts !== '') {
@@ -984,8 +1840,29 @@ function snapbook_send_balance_reminder_email($parent_order_id, $manual = false)
         'preheader' => sprintf(__('%s is still due for your booking.', 'snapbook'), $balance_amount),
     ]);
     if ($sent) {
+        $now = time();
         $parent_order->update_meta_data('_fpb_last_balance_reminder_sent', current_time('mysql'));
         $parent_order->update_meta_data('_fpb_last_balance_reminder_mode', $manual ? 'manual' : 'automatic');
+        // Unix time of the latest reminder of any kind; the automatic
+        // schedules count their gaps from it (snapbook_balance_reminder_next()).
+        $parent_order->update_meta_data('_fpb_reminder_last_ts', $now);
+        $parent_order->update_meta_data('_fpb_reminder_sent_count', (int) $parent_order->get_meta('_fpb_reminder_sent_count', true) + 1);
+        $parent_order->delete_meta_data('_fpb_reminder_fail_ts');
+        if ($type === 'before') {
+            $parent_order->update_meta_data('_fpb_reminder_before_sent', $now);
+        } elseif ($type === 'repeat') {
+            $parent_order->update_meta_data('_fpb_reminder_repeat_count', (int) $parent_order->get_meta('_fpb_reminder_repeat_count', true) + 1);
+        }
+
+        if ($manual) {
+            $how = __('sent manually', 'snapbook');
+        } elseif ($type === 'before') {
+            $how = __('automatic, before the photoshoot', 'snapbook');
+        } else {
+            $how = __('automatic, repeating until paid', 'snapbook');
+        }
+        /* translators: 1: outstanding balance, 2: customer email, 3: how it was sent */
+        $parent_order->add_order_note(sprintf(__('Balance reminder for %1$s emailed to %2$s (%3$s).', 'snapbook'), $balance_amount, $to_email, $how));
         $parent_order->save();
     }
 
@@ -1034,6 +1911,10 @@ function snapbook_get_balance_order_for($parent_order, $create = false)
     }
 
     $due_order_id = (int) $parent_order->get_meta('_fpb_due_order_id', true);
+    if ($due_order_id < 1) {
+        // The caller's copy of the order may predate _fpb_due_order_id.
+        $due_order_id = snapbook_find_balance_order_id($parent_order->get_id());
+    }
     if ($due_order_id > 0) {
         $due_order = wc_get_order($due_order_id);
         if ($due_order) {
@@ -1182,12 +2063,23 @@ function snapbook_order_totals_deposit_rows($total_rows, $order)
     );
     $after = [
         'snapbook_balance_due' => [
-            'label' => __('Remaining balance:', 'snapbook'),
+            'label' => snapbook_booking_balance_paid($order) ? __('Balance paid:', 'snapbook') : __('Remaining balance:', 'snapbook'),
             'value' => wc_price($figures['balance'], $args),
         ],
     ];
 
     return snapbook_splice_total_rows($total_rows, $before, $relabel, $after, $order);
+}
+
+/**
+ * Whether a deposit booking's remaining balance has been paid, i.e. its
+ * balance order is processing or completed.
+ */
+function snapbook_booking_balance_paid($order)
+{
+    $due = snapbook_get_balance_order_for($order, false);
+
+    return $due ? $due->is_paid() : false;
 }
 
 /**
@@ -1329,10 +2221,15 @@ function snapbook_email_append_balance_link($order, $sent_to_admin = false, $pla
 
     if ($session_date !== '') {
         /* translators: 1: balance amount, 2: session date */
-        $intro = sprintf(__('A balance of %1$s is still due for your session on %2$s. You can settle it any time using the button below.', 'snapbook'), $balance_amount, $session_date);
+        $intro = sprintf(__('A balance of %1$s is still due for your session on %2$s. You can settle it any time using the button below.', 'snapbook'), $balance_amount, snapbook_email_pretty_date($session_date));
     } else {
         /* translators: %s: balance amount */
         $intro = sprintf(__('A balance of %s is still due for your booking. You can settle it any time using the button below.', 'snapbook'), $balance_amount);
+    }
+    $due_by = (string) $order->get_meta('_fpb_balance_due_date', true);
+    if ($due_by !== '') {
+        /* translators: %s: date the balance is due */
+        $intro .= ' ' . sprintf(__('Please pay it by %s.', 'snapbook'), snapbook_email_pretty_date($due_by));
     }
 
     // Self-contained inline styles — email clients don't load the plugin CSS.
@@ -1358,7 +2255,7 @@ function snapbook_email_append_balance_link($order, $sent_to_admin = false, $pla
 /* ═══════════════════════════════════════════════════════════════
    Order confirmation email extras — an editable message block and
    a file attachment (e.g. a Terms of Service PDF), both managed in
-   SnapBook → Settings → Order Email.
+   SnapBook → Settings → Emails → Customer booking confirmation.
 ═══════════════════════════════════════════════════════════════ */
 
 /**
@@ -1593,7 +2490,7 @@ function snapbook_email_attach_order_file($attachments, $email_id = '', $object 
    customer gets, but with the full booking laid bare (payment
    breakdown, customer contact, a manage-order link). Replaces
    WooCommerce's plain New Order email for booking orders when the
-   admin turns it on in SnapBook → Settings → Admin Order Email.
+   admin turns it on in SnapBook → Settings → Emails → New-booking alert.
 ═══════════════════════════════════════════════════════════════ */
 
 /**
@@ -1869,7 +2766,16 @@ function snapbook_ajax_order_confirmation()
 
     $status = $order->get_status();
 
+    $instructions = '';
+    if ($order->has_status('on-hold')) {
+        ob_start();
+        do_action('woocommerce_thankyou_' . $order->get_payment_method(), $order->get_id()); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own hook.
+        $instructions = wp_kses_post(trim((string) ob_get_clean()));
+    }
+
     wp_send_json_success([
+        'awaiting_payment'  => $order->has_status('on-hold'),
+        'instructions_html' => $instructions,
         'order_id'          => (int) $order->get_id(),
         'order_number'      => (string) $order->get_order_number(),
         'status'            => $status,
@@ -1895,7 +2801,7 @@ function snapbook_ajax_place_booking_order()
     }
 
     if ((int) get_option('fpb_require_account_booking', 0) === 1 && ! is_user_logged_in()) {
-        wp_send_json_error(['message' => __('Please log in or create an account before completing your booking.', 'snapbook')]);
+        wp_send_json_error(['message' => __('Please log in or create an account before completing your booking.', 'snapbook'), 'code' => 'snapbook_login_required']);
     }
 
     $product_id = (int) get_option('fpb_wc_product_id', 0);
@@ -1936,47 +2842,67 @@ function snapbook_ajax_place_booking_order()
         wp_send_json_error(['message' => __('Participants must be at least 1.', 'snapbook')]);
     }
 
-    $total        = floatval(wp_unslash($_POST['total_raw'] ?? 0));
+    $payment_method     = sanitize_key(wp_unslash($_POST['payment_method'] ?? ''));
+    $previous_order_id  = absint(wp_unslash($_POST['previous_order_id'] ?? 0));
+    $hold_token         = snapbook_clean_hold_token(sanitize_text_field(wp_unslash($_POST['hold_token'] ?? '')));
+    // The customer's own earlier (superseded) order doesn't count against the
+    // date — but only when they prove it's theirs with its order key.
+    $previous_order = $previous_order_id > 0 ? wc_get_order($previous_order_id) : null;
+    $prev_key       = sanitize_text_field(wp_unslash($_POST['previous_order_key'] ?? ''));
+    $exclude_order  = ($previous_order && $prev_key !== '' && ! $previous_order->is_paid() && hash_equals($previous_order->get_order_key(), $prev_key)) ? $previous_order_id : 0;
+
     $session_date = sanitize_text_field(wp_unslash($_POST['session_date'] ?? ''));
-    $partial_enabled       = ((int) get_option('fpb_enable_partial_payment', 1) === 1);
-    $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
-    $can_use_deposit = $partial_enabled && $use_deposit_requested && snapbook_can_use_partial_payment_for_date($session_date);
-    $pay_pct  = $can_use_deposit ? 50 : 100;
-    // Payment fee sits on top of the booking total; the deposit split
-    // then applies to the fee-inclusive payable amount.
-    $fee_pct  = snapbook_get_payment_fee_pct();
-    $fee      = round(($total * $fee_pct) / 100, 2);
-    $payable  = round($total + $fee, 2);
-    $deposit  = round(($payable * $pay_pct) / 100, 2);
+    if ($session_date === '') {
+        wp_send_json_error(['message' => __('Please choose a session date before checkout.', 'snapbook'), 'code' => 'snapbook_date']);
+    }
+    // The start time: the slot picked under the calendar when the studio
+    // offers start times, else the free "Start time" detail field.
+    $session_time = snapbook_slots_enabled()
+        ? snapbook_normalize_time(sanitize_text_field(wp_unslash($_POST['session_time'] ?? '')))
+        : (string) ($details['event_time'] ?? '');
+    $date_ok = snapbook_validate_booking_date($session_date, $exclude_order, $session_time, $hold_token);
+    if (is_wp_error($date_ok)) {
+        wp_send_json_error(['message' => $date_ok->get_error_message(), 'code' => $date_ok->get_error_code()]);
+    }
+
+    // Terms: accepted in the Contract step, for the wording currently shown.
+    $contract = snapbook_contract_from_post();
+    if (is_wp_error($contract)) {
+        wp_send_json_error(['message' => $contract->get_error_message(), 'code' => $contract->get_error_code()]);
+    }
+
+    // Price from the database, never from the browser.
+    $quote = snapbook_quote_booking(snapbook_quote_args_from_post($payment_method));
+    if (is_wp_error($quote)) {
+        wp_send_json_error(['message' => $quote->get_error_message(), 'code' => $quote->get_error_code()]);
+    }
 
     $booking = [
-        'product_id'    => $product_id,
-        'session_type'  => sanitize_text_field(wp_unslash($_POST['session_type'] ?? '')),
-        'package_name'  => sanitize_text_field(wp_unslash($_POST['package_name'] ?? '')),
-        'package_id'    => absint(wp_unslash($_POST['package_id'] ?? 0)),
-        'addons_label'  => sanitize_text_field(wp_unslash($_POST['addons_label'] ?? '')),
-        'addons_total'  => floatval(wp_unslash($_POST['addons_total'] ?? 0)),
-        'total'         => $payable,
-        'fee_pct'       => $fee_pct,
-        'fee_amount'    => $fee,
-        'deposit'       => $deposit,
-        'deposit_pct'   => $pay_pct,
-        'session_date'  => $session_date,
-        'currency'      => snapbook_get_currency_symbol(),
+        'product_id'       => $product_id,
+        'session_type'     => $quote['session_type'],
+        'package_name'     => $quote['package_name'],
+        'package_id'       => $quote['package_id'],
+        'addon_ids'        => $quote['addon_ids'],
+        'addons_label'     => $quote['addons_label'],
+        'addons_total'     => $quote['addons_total'],
+        'subtotal'         => $quote['subtotal'],
+        'coupon_code'      => $quote['coupon_code'],
+        'discount'         => $quote['discount'],
+        'total'            => $quote['payable'],
+        'fee_pct'          => $quote['fee_pct'],
+        'fee_amount'       => $quote['fee_amount'],
+        'deposit'          => $quote['due_now'],
+        'deposit_pct'      => $quote['pay_pct'],
+        'balance_due_date' => $quote['balance_due_date'],
+        'session_date'     => $session_date,
+        'session_time'     => $session_time,
+        'hold_token'       => $hold_token,
+        'contract'         => $contract,
+        'currency'         => snapbook_get_currency_symbol(),
     ];
-
-    if (empty($booking['package_name'])) {
-        wp_send_json_error(['message' => __('Please select a package before checkout.', 'snapbook')]);
-    }
-    if (empty($booking['session_date'])) {
-        wp_send_json_error(['message' => __('Please choose a session date before checkout.', 'snapbook')]);
-    }
-
-    $payment_method = sanitize_key(wp_unslash($_POST['payment_method'] ?? ''));
 
     // If the customer went back and changed the booking after an order was
     // already created, cancel that superseded order before creating the new one.
-    $previous_order_id  = absint(wp_unslash($_POST['previous_order_id'] ?? 0));
     $previous_order_key = sanitize_text_field(wp_unslash($_POST['previous_order_key'] ?? ''));
     if ($previous_order_id > 0 && $previous_order_key !== '') {
         snapbook_cancel_superseded_booking_order($previous_order_id, $previous_order_key);
@@ -1996,7 +2922,13 @@ function snapbook_ajax_place_booking_order()
     $embed_url     = '';
     $gateway_title = '';
 
-    if ($payment_method !== '' && WC()->payment_gateways()) {
+    if ((float) $order->get_total() <= 0) {
+        // Nothing to pay (a free package, or a 100% promo code): WooCommerce's
+        // pay page refuses orders with no payment due, so confirm right here.
+        $order->payment_complete();
+        $order     = wc_get_order($order->get_id());
+        $processed = true;
+    } elseif ($payment_method !== '' && WC()->payment_gateways()) {
         snapbook_ensure_wc_frontend_context();
         $available = WC()->payment_gateways()->get_available_payment_gateways();
         if (isset($available[$payment_method])) {
@@ -2034,14 +2966,25 @@ function snapbook_ajax_place_booking_order()
                 }
             }
         }
-    } elseif ($payment_method === '') {
+    } elseif (! $processed && $payment_method === '') {
         // No method chosen up front — the embedded pay page presents the
         // gateway list natively (icons, expanding card fields, Pay button),
         // exactly like the WooCommerce checkout payment section.
         $embed_url = add_query_arg('snapbook_embed', '1', $order->get_checkout_payment_url());
     }
 
+    // Bank transfer / cheque / cash on delivery: the booking is placed but not
+    // paid. The customer needs the gateway's instructions (bank details).
+    $instructions = '';
+    if ($processed && $order->has_status('on-hold')) {
+        ob_start();
+        do_action('woocommerce_thankyou_' . $order->get_payment_method(), $order->get_id()); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own hook.
+        $instructions = wp_kses_post(trim((string) ob_get_clean()));
+    }
+
     wp_send_json_success([
+        'awaiting_payment'  => $order->has_status('on-hold'),
+        'instructions_html' => $instructions,
         'order_id'          => (int) $order->get_id(),
         'order_key'         => (string) $order->get_order_key(),
         'order_number'      => (string) $order->get_order_number(),
@@ -2066,16 +3009,18 @@ function snapbook_ajax_place_booking_order()
  *
  * @return WC_Order|false
  */
-function snapbook_create_booking_order($booking, $details, $payment_method = '')
+function snapbook_create_booking_order($booking, $details, $payment_method = '', $created_via = 'snapbook')
 {
     $product = wc_get_product((int) $booking['product_id']);
     if (! $product) {
         return false;
     }
 
-    $order = wc_create_order([
-        'customer_id' => get_current_user_id(),
-        'created_via' => 'snapbook',
+    // Studio-added bookings belong to the customer (by email), not the admin.
+    $customer_id = 'snapbook' === $created_via ? get_current_user_id() : (int) ($booking['customer_id'] ?? 0);
+    $order       = wc_create_order([
+        'customer_id' => $customer_id,
+        'created_via' => $created_via,
     ]);
     if (! $order || is_wp_error($order)) {
         return false;
@@ -2088,10 +3033,17 @@ function snapbook_create_booking_order($booking, $details, $payment_method = '')
     $country_code = strlen($country_raw) === 2 ? strtoupper($country_raw) : '';
     $balance_due  = max(0, (float) $booking['total'] - (float) $booking['deposit']);
 
+    // A promo code comes off the booking price; this order carries its share
+    // (the deposit % of the discount) as a normal WooCommerce discount, so
+    // reports and coupon usage limits see it.
+    $pay_pct        = max(1, (int) ($booking['deposit_pct'] ?? 100));
+    $discount_share = ! empty($booking['coupon_code']) ? round((float) ($booking['discount'] ?? 0) * $pay_pct / 100, 2) : 0.0;
+    $session_time   = (string) ($booking['session_time'] ?? ($details['event_time'] ?? ''));
+
     $item = new WC_Order_Item_Product();
     $item->set_product($product);
     $item->set_quantity(1);
-    $item->set_subtotal((float) $booking['deposit']);
+    $item->set_subtotal((float) $booking['deposit'] + $discount_share);
     $item->set_total((float) $booking['deposit']);
     if (! empty($booking['package_name'])) {
         $item->set_name(__('Photography Session', 'snapbook') . ' — ' . $booking['package_name']);
@@ -2100,6 +3052,8 @@ function snapbook_create_booking_order($booking, $details, $payment_method = '')
     $meta_map = [
         '_fpb_session_type'  => $booking['session_type'],
         '_fpb_package_name'  => $booking['package_name'],
+        '_fpb_package_id'    => (int) ($booking['package_id'] ?? 0),
+        '_fpb_addon_ids'     => implode(',', array_map('intval', (array) ($booking['addon_ids'] ?? []))),
         '_fpb_total'         => $booking['total'],
         '_fpb_fee_pct'       => $booking['fee_pct'] ?? 0,
         '_fpb_fee_amount'    => $booking['fee_amount'] ?? 0,
@@ -2108,17 +3062,20 @@ function snapbook_create_booking_order($booking, $details, $payment_method = '')
         '_fpb_balance_due'   => $balance_due,
         '_fpb_addons_label'  => $booking['addons_label'],
         '_fpb_addons_total'  => $booking['addons_total'],
+        '_fpb_subtotal'      => $booking['subtotal'] ?? '',
+        '_fpb_coupon_code'   => $booking['coupon_code'] ?? '',
+        '_fpb_discount'      => $booking['discount'] ?? 0,
         '_fpb_client_name'   => $client_name,
         '_fpb_client_email'  => $client_email,
         '_fpb_client_phone'  => $client_phone,
         '_fpb_client_country' => $country_raw,
         '_fpb_session_date'  => $booking['session_date'],
-        '_fpb_session_time'  => $details['event_time'] ?? '',
+        '_fpb_session_time'  => $session_time,
         '_fpb_location_pref' => $details['hotel_place'] ?? '',
         '_fpb_notes'         => $details['notes'] ?? '',
-        '_fpb_signer_name'   => '',
+        '_fpb_signer_name'   => (string) ($booking['contract']['signature'] ?? ''),
         '_fpb_billing_event_date'   => $booking['session_date'],
-        '_fpb_billing_event_time'   => $details['event_time'] ?? '',
+        '_fpb_billing_event_time'   => $session_time,
         '_fpb_billing_hotel_place'  => $details['hotel_place'] ?? '',
         '_fpb_billing_participants' => $details['participants'] ?? '',
         '_fpb_billing_room_number'  => $details['room_number'] ?? '',
@@ -2148,7 +3105,23 @@ function snapbook_create_booking_order($booking, $details, $payment_method = '')
     ], 'billing');
 
     $order->update_meta_data('_fpb_billing_event_date',   $booking['session_date']);
-    $order->update_meta_data('_fpb_billing_event_time',   $details['event_time'] ?? '');
+    $order->update_meta_data('_fpb_billing_event_time',   $session_time);
+    // Lets this customer's own unpaid order not block their date (holds).
+    if (! empty($booking['hold_token'])) {
+        $order->update_meta_data('_fpb_hold_token', (string) $booking['hold_token']);
+    }
+    if (! empty($booking['balance_due_date'])) {
+        $order->update_meta_data('_fpb_balance_due_date', (string) $booking['balance_due_date']);
+    }
+    // Record of the terms the customer accepted.
+    if (! empty($booking['contract'])) {
+        $order->update_meta_data('_fpb_contract_accepted_at', (string) $booking['contract']['accepted_at']);
+        $order->update_meta_data('_fpb_contract_version', (string) $booking['contract']['version']);
+        $order->update_meta_data('_fpb_contract_signature', (string) $booking['contract']['signature']);
+        $order->update_meta_data('_fpb_contract_ip', (string) $booking['contract']['ip']);
+        $order->update_meta_data('_fpb_contract_ua', (string) $booking['contract']['ua']);
+        snapbook_remember_contract_version($booking['contract']['version']);
+    }
     $order->update_meta_data('_fpb_billing_hotel_place',  $details['hotel_place'] ?? '');
     $order->update_meta_data('_fpb_billing_participants', $details['participants'] ?? '');
     $order->update_meta_data('_fpb_billing_room_number',  $details['room_number'] ?? '');
@@ -2170,9 +3143,25 @@ function snapbook_create_booking_order($booking, $details, $payment_method = '')
         }
     }
 
+    if ($discount_share > 0) {
+        $coupon_item = new WC_Order_Item_Coupon();
+        $coupon_item->set_code((string) $booking['coupon_code']);
+        $coupon_item->set_discount($discount_share);
+        $order->add_item($coupon_item);
+    }
+
     $order->calculate_totals();
     $order->update_status('pending');
     $order->add_order_note(__('Created via SnapBook booking form.', 'snapbook'));
+    if (! empty($booking['contract'])) {
+        $order->add_order_note(sprintf(
+            /* translators: 1: terms version, 2: signature or "no signature", 3: IP address */
+            __('Terms & Conditions accepted (version %1$s, signed: %2$s, IP %3$s).', 'snapbook'),
+            $booking['contract']['version'],
+            $booking['contract']['signature'] !== '' ? $booking['contract']['signature'] : __('no signature', 'snapbook'),
+            $booking['contract']['ip']
+        ));
+    }
     $order->save();
 
     return $order;

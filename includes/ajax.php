@@ -38,10 +38,10 @@ function snapbook_ajax_get_data()
 
     wp_send_json_success(snapbook_get_catalog_data() + [
         'currency' => snapbook_get_currency_symbol(),
-        'depositPct' => ((int) get_option('fpb_enable_partial_payment', 1) === 1 ? 50 : 100),
+        'depositPct' => snapbook_deposit_enabled() ? snapbook_get_deposit_pct() : 100,
         'partialPaymentEnabled' => ((int) get_option('fpb_enable_partial_payment', 1) === 1),
         'partialBlockDays' => snapbook_get_partial_block_days(),
-        'partialOptionLabel' => get_option('fpb_partial_option_label', __('Book a slot to 50% Pay', 'snapbook')),
+        'partialOptionLabel' => function_exists('snapbook_partial_option_label') ? snapbook_partial_option_label() : (string) get_option('fpb_partial_option_label', ''),
     ]);
 }
 
@@ -54,32 +54,65 @@ function snapbook_ajax_preview_payment()
 {
     check_ajax_referer('snapbook_nonce', 'nonce');
 
-    $total = max(0, floatval(wp_unslash($_POST['total_raw'] ?? 0)));
-    $session_date = sanitize_text_field(wp_unslash($_POST['session_date'] ?? ''));
-    $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
+    // Priced from the database when the form sends the package (it always
+    // does since 1.4.0), so the summary shows exactly what will be charged.
+    $args = snapbook_quote_args_from_post(sanitize_key(wp_unslash($_POST['payment_method'] ?? '')));
+    if ($args['package_id'] < 1) {
+        // A page cached before 1.4.0: only a total to go on (display only).
+        $total   = max(0, floatval(wp_unslash($_POST['total_raw'] ?? 0)));
+        $fee_pct = snapbook_get_payment_fee_pct();
+        $fee     = round($total * $fee_pct / 100, 2);
+        $payable = round($total + $fee, 2);
+        $pct     = (snapbook_deposit_enabled() && $args['use_deposit'] && snapbook_can_use_partial_payment_for_date($args['session_date'])) ? snapbook_get_deposit_pct() : 100;
+        $due     = round($payable * $pct / 100, 2);
+        wp_send_json_success([
+            'payPct'         => $pct,
+            'depositPct'     => snapbook_get_deposit_pct(),
+            'isEligible'     => $pct < 100,
+            'dueToday'       => $due,
+            'balanceDue'     => max(0, round($payable - $due, 2)),
+            'subtotal'       => $total,
+            'discount'       => 0,
+            'couponCode'     => '',
+            'couponError'    => '',
+            'total'          => $total,
+            'feePct'         => $fee_pct,
+            'feeLabel'       => snapbook_payment_fee_label(),
+            'feeAmount'      => $fee,
+            'payable'        => $payable,
+            'balanceDueDate' => '',
+        ]);
+    }
 
-    $partial_enabled = ((int) get_option('fpb_enable_partial_payment', 1) === 1);
-    $is_eligible = $partial_enabled && snapbook_can_use_partial_payment_for_date($session_date);
-    $pay_pct = ($partial_enabled && $use_deposit_requested && $is_eligible) ? 50 : 100;
-
-    // Payment fee sits on top of the booking total; the deposit split
-    // then applies to the fee-inclusive payable amount.
-    $fee_pct = snapbook_get_payment_fee_pct();
-    $fee     = round(($total * $fee_pct) / 100, 2);
-    $payable = round($total + $fee, 2);
-
-    $due_today = round(($payable * $pay_pct) / 100, 2);
-    $balance_due = max(0, round($payable - $due_today, 2));
+    $coupon_error = '';
+    $quote        = snapbook_quote_booking($args);
+    if (is_wp_error($quote) && $quote->get_error_code() === 'snapbook_coupon_invalid') {
+        // A bad promo code shouldn't blank the summary: price without it and
+        // report the problem next to the code field.
+        $coupon_error        = $quote->get_error_message();
+        $args['coupon_code'] = '';
+        $quote               = snapbook_quote_booking($args);
+    }
+    if (is_wp_error($quote)) {
+        wp_send_json_error(['message' => $quote->get_error_message(), 'code' => $quote->get_error_code()]);
+    }
 
     wp_send_json_success([
-        'payPct' => $pay_pct,
-        'isEligible' => $is_eligible,
-        'dueToday' => $due_today,
-        'balanceDue' => $balance_due,
-        'total' => $total,
-        'feePct' => $fee_pct,
-        'feeAmount' => $fee,
-        'payable' => $payable,
+        'payPct'         => $quote['pay_pct'],
+        'depositPct'     => $quote['deposit_pct'],
+        'isEligible'     => $quote['deposit_eligible'],
+        'dueToday'       => $quote['due_now'],
+        'balanceDue'     => $quote['balance'],
+        'subtotal'       => $quote['subtotal'],
+        'discount'       => $quote['discount'],
+        'couponCode'     => $quote['coupon_code'],
+        'couponError'    => $coupon_error,
+        'total'          => $quote['total'],
+        'feePct'         => $quote['fee_pct'],
+        'feeLabel'       => $quote['fee_label'],
+        'feeAmount'      => $quote['fee_amount'],
+        'payable'        => $quote['payable'],
+        'balanceDueDate' => $quote['balance_due_date'],
     ]);
 }
 
@@ -90,15 +123,11 @@ add_action('wp_ajax_snapbook_get_dates',        'snapbook_ajax_get_dates');
 add_action('wp_ajax_nopriv_snapbook_get_dates', 'snapbook_ajax_get_dates');
 function snapbook_ajax_get_dates()
 {
-    check_ajax_referer('snapbook_nonce', 'nonce');
-    global $wpdb;
-    $pfx  = $wpdb->prefix . 'fpb_';
-    $rows = $wpdb->get_results("SELECT date_str, status FROM {$pfx}dates WHERE status != 'available' ORDER BY date_str"); // phpcs:ignore
-    $out  = [];
-    foreach ($rows as $r) {
-        $out[$r->date_str] = $r->status;
-    }
-    wp_send_json_success($out);
+    // No nonce: this is public, read-only data. With one, a page served from
+    // a page cache after the nonce expired got a 403, and the calendar then
+    // showed every booked date as free. Pages built since 1.5.0 call
+    // snapbook_get_availability instead; this stays for cached older pages.
+    wp_send_json_success(snapbook_get_availability_data()['unavailable']);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -159,36 +188,58 @@ function snapbook_ajax_add_to_cart()
         wp_send_json_error(['message' => __('Booking product not configured. Please contact support.', 'snapbook')]);
     }
 
-    $cur      = snapbook_get_currency_symbol();
-    $total    = floatval(wp_unslash($_POST['total_raw'] ?? 0));
-    $partial_enabled = ((int) get_option('fpb_enable_partial_payment', 1) === 1);
+    $cur          = snapbook_get_currency_symbol();
     $session_date = sanitize_text_field(wp_unslash($_POST['session_date'] ?? ''));
-    $use_deposit_requested = absint(wp_unslash($_POST['use_deposit'] ?? 0)) === 1;
-    $can_use_deposit = $partial_enabled && $use_deposit_requested && snapbook_can_use_partial_payment_for_date($session_date);
-    $pay_pct  = $can_use_deposit ? 50 : 100;
-    $fee_pct  = snapbook_get_payment_fee_pct();
-    $fee      = round(($total * $fee_pct) / 100, 2);
-    $payable  = round($total + $fee, 2);
-    $deposit  = round(($payable * $pay_pct) / 100, 2);
+    $hold_token   = snapbook_clean_hold_token(sanitize_text_field(wp_unslash($_POST['hold_token'] ?? '')));
+    $session_time = snapbook_slots_enabled()
+        ? snapbook_normalize_time(sanitize_text_field(wp_unslash($_POST['session_time'] ?? '')))
+        : sanitize_text_field(wp_unslash($_POST['session_time'] ?? ''));
+    if ($session_date === '') {
+        wp_send_json_error(['message' => __('Please choose a session date before checkout.', 'snapbook'), 'code' => 'snapbook_date']);
+    }
+    $date_ok = snapbook_validate_booking_date($session_date, 0, $session_time, $hold_token);
+    if (is_wp_error($date_ok)) {
+        wp_send_json_error(['message' => $date_ok->get_error_message(), 'code' => $date_ok->get_error_code()]);
+    }
+    $contract = snapbook_contract_from_post();
+    if (is_wp_error($contract)) {
+        wp_send_json_error(['message' => $contract->get_error_message(), 'code' => $contract->get_error_code()]);
+    }
+
+    // Price from the database, never from the browser. The gateway is chosen
+    // later on the checkout page, so the fee is included here and comes off
+    // there for fee-free methods (snapbook_strip_fee_for_gateway()).
+    $quote = snapbook_quote_booking(snapbook_quote_args_from_post());
+    if (is_wp_error($quote)) {
+        wp_send_json_error(['message' => $quote->get_error_message(), 'code' => $quote->get_error_code()]);
+    }
+    $priced = $quote;
 
     $booking = [
         'product_id'    => $product_id,
-        'session_type'  => sanitize_text_field(wp_unslash($_POST['session_type']  ?? '')),
-        'package_name'  => sanitize_text_field(wp_unslash($_POST['package_name']  ?? '')),
-        'package_id'    => absint(wp_unslash($_POST['package_id'] ?? 0)),
-        'addons_label'  => sanitize_text_field(wp_unslash($_POST['addons_label']  ?? '')),
-        'addons_total'  => floatval(wp_unslash($_POST['addons_total']  ?? 0)),
-        'total'         => $payable,
-        'fee_pct'       => $fee_pct,
-        'fee_amount'    => $fee,
-        'deposit'       => $deposit,
-        'deposit_pct'   => $pay_pct,
+        'session_type'  => $priced['session_type'],
+        'package_name'  => $priced['package_name'],
+        'package_id'    => $priced['package_id'],
+        'addon_ids'     => $priced['addon_ids'],
+        'addons_label'  => $priced['addons_label'],
+        'addons_total'  => $priced['addons_total'],
+        'subtotal'      => $quote['subtotal'],
+        'coupon_code'   => $quote['coupon_code'],
+        'discount'      => $quote['discount'],
+        'total'         => $quote['payable'],
+        'fee_pct'       => $quote['fee_pct'],
+        'fee_amount'    => $quote['fee_amount'],
+        'deposit'       => $quote['due_now'],
+        'deposit_pct'   => $quote['pay_pct'],
+        'balance_due_date' => $quote['balance_due_date'],
+        'hold_token'    => $hold_token,
+        'contract'      => $contract,
         'client_name'   => sanitize_text_field(wp_unslash($_POST['client_name']   ?? '')),
         'client_email'  => sanitize_email(wp_unslash($_POST['client_email']  ?? '')),
         'client_phone'  => sanitize_text_field(wp_unslash($_POST['client_phone']  ?? '')),
         'client_country' => sanitize_text_field(wp_unslash($_POST['client_country'] ?? '')),
         'session_date'  => $session_date,
-        'session_time'  => sanitize_text_field(wp_unslash($_POST['session_time']  ?? '')),
+        'session_time'  => $session_time,
         'location_pref' => sanitize_text_field(wp_unslash($_POST['location_pref'] ?? '')),
         'notes'         => sanitize_textarea_field(wp_unslash($_POST['notes']     ?? '')),
         'signer_name'   => sanitize_text_field(wp_unslash($_POST['signer_name']   ?? '')),
@@ -200,14 +251,6 @@ function snapbook_ajax_add_to_cart()
         'stay_period'   => sanitize_text_field(wp_unslash($_POST['stay_period']   ?? '')),
         'currency'      => $cur,
     ];
-
-    if (empty($booking['package_name'])) {
-        wp_send_json_error(['message' => __('Please select a package before checkout.', 'snapbook')]);
-    }
-
-    if (empty($booking['session_date'])) {
-        wp_send_json_error(['message' => __('Please choose a session date before checkout.', 'snapbook')]);
-    }
 
     // Save booking to a short-lived transient so the normal page request can
     // add it to the WooCommerce cart with a properly initialised session.
@@ -258,8 +301,12 @@ function snapbook_handle_checkout_redirect()
 /* ═══════════════════════════════════════════════════════════════
    PUBLIC — Fallback email submit (when WooCommerce not active)
 ═══════════════════════════════════════════════════════════════ */
-add_action('wp_ajax_snapbook_submit',        'snapbook_ajax_submit');
-add_action('wp_ajax_nopriv_snapbook_submit', 'snapbook_ajax_submit');
+// Only the WooCommerce-less booking form uses this. With WooCommerce active it
+// would just be a public endpoint that emails any address, so it isn't there.
+if (! class_exists('WooCommerce')) {
+    add_action('wp_ajax_snapbook_submit',        'snapbook_ajax_submit');
+    add_action('wp_ajax_nopriv_snapbook_submit', 'snapbook_ajax_submit');
+}
 function snapbook_ajax_submit()
 {
     check_ajax_referer('snapbook_nonce', 'nonce');
@@ -365,7 +412,7 @@ function snapbook_admin_save_settings()
         wp_send_json_error(['message' => 'Permission denied.']);
     }
 
-    foreach (['fpb_balance_reminder_subject', 'fpb_partial_option_label', 'fpb_whatsapp', 'fpb_success_title', 'fpb_success_msg', 'fpb_whatsapp_btn', 'fpb_confirm_title', 'fpb_confirm_msg', 'fpb_confirm_pending_title', 'fpb_confirm_pending_msg'] as $key) {
+    foreach (['fpb_partial_option_label', 'fpb_whatsapp', 'fpb_success_title', 'fpb_success_msg', 'fpb_whatsapp_btn', 'fpb_confirm_title', 'fpb_confirm_msg', 'fpb_confirm_pending_title', 'fpb_confirm_pending_msg'] as $key) {
         update_option($key, sanitize_text_field(wp_unslash($_POST[$key] ?? '')));
     }
     update_option('fpb_admin_email', sanitize_email(wp_unslash($_POST['fpb_admin_email'] ?? '')) ?: get_option('admin_email'));
@@ -381,11 +428,10 @@ function snapbook_admin_save_settings()
 
     update_option('fpb_enable_partial_payment', absint(wp_unslash($_POST['fpb_enable_partial_payment'] ?? 0)) === 1 ? 1 : 0);
     update_option('fpb_partial_block_days', max(0, absint(wp_unslash($_POST['fpb_partial_block_days'] ?? 0))));
-    update_option('fpb_payment_fee_pct', min(100, max(0, (float) wp_unslash($_POST['fpb_payment_fee_pct'] ?? 0))));
+    update_option('fpb_payment_fee_pct', min(100, max(0, (float) sanitize_text_field(wp_unslash($_POST['fpb_payment_fee_pct'] ?? 0)))));
     update_option('fpb_require_account_booking', absint(wp_unslash($_POST['fpb_require_account_booking'] ?? 0)) === 1 ? 1 : 0);
-    update_option('fpb_enable_balance_reminders', absint(wp_unslash($_POST['fpb_enable_balance_reminders'] ?? 0)) === 1 ? 1 : 0);
-    update_option('fpb_balance_reminder_days_before', absint(wp_unslash($_POST['fpb_balance_reminder_days_before'] ?? 1)));
-    update_option('fpb_balance_reminder_template', wp_kses_post(wp_unslash($_POST['fpb_balance_reminder_template'] ?? '')));
+    snapbook_save_balance_reminder_settings($_POST); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized per key inside.
+    snapbook_save_extra_settings($_POST); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized per key inside.
 
     update_option('fpb_order_email_enable', absint(wp_unslash($_POST['fpb_order_email_enable'] ?? 0)) === 1 ? 1 : 0);
     update_option('fpb_order_email_order_table', absint(wp_unslash($_POST['fpb_order_email_order_table'] ?? 0)) === 1 ? 1 : 0);
@@ -427,7 +473,7 @@ add_action('wp_ajax_snapbook_admin_send_balance_reminder', 'snapbook_admin_send_
 function snapbook_admin_send_balance_reminder()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) {
+    if (! snapbook_can_manage()) {
         wp_send_json_error(['message' => 'Permission denied.']);
     }
 
@@ -441,17 +487,76 @@ function snapbook_admin_send_balance_reminder()
         wp_send_json_error(['message' => 'Invalid booking id.']);
     }
 
-    $booking = $wpdb->get_row($wpdb->prepare("SELECT order_id FROM {$wpdb->prefix}fpb_bookings WHERE id = %d", $booking_id)); // phpcs:ignore
+    $booking = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}fpb_bookings WHERE id = %d", $booking_id)); // phpcs:ignore
     if (! $booking || empty($booking->order_id)) {
         wp_send_json_error(['message' => 'Booking order not found.']);
     }
 
-    $sent = snapbook_send_balance_reminder_email((int) $booking->order_id, true);
-    if (! $sent) {
-        wp_send_json_error(['message' => 'Reminder was not sent (already paid or data missing).']);
+    // Say exactly why when a reminder can't go out (paid, cancelled, no
+    // working payment link, no email) instead of a catch-all message.
+    if (function_exists('snapbook_admin_prepare_booking')) {
+        $check = clone $booking;
+        snapbook_admin_prepare_booking($check);
+        $pay = $check->fpb_payment;
+        if (empty($pay['can_remind'])) {
+            wp_send_json_error(['message' => $pay['remind_block'] !== '' ? $pay['remind_block'] : __('This booking has no unpaid balance to remind the customer about.', 'snapbook')]);
+        }
     }
 
-    wp_send_json_success(['message' => 'Reminder email sent.']);
+    $sent = snapbook_send_balance_reminder_email((int) $booking->order_id, true);
+    if (! $sent) {
+        wp_send_json_error(['message' => __('Reminder was not sent: the balance is already paid, the balance order is not awaiting payment (on hold, cancelled or refunded), the customer has no email address, or the email could not be sent.', 'snapbook')]);
+    }
+
+    // Fresh reminder details (count, last sent, next automatic) so the View
+    // window can update without a reload.
+    $data = ['message' => __('Reminder email sent.', 'snapbook')];
+    if (function_exists('snapbook_admin_prepare_booking')) {
+        $fresh = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}fpb_bookings WHERE id = %d", $booking_id)); // phpcs:ignore
+        if ($fresh) {
+            snapbook_admin_prepare_booking($fresh);
+            $data['payment'] = $fresh->fpb_payment;
+            if ($fresh->fpb_payment['remind_email'] !== '') {
+                /* translators: %s: customer email address */
+                $data['message'] = sprintf(__('Reminder sent to %s.', 'snapbook'), $fresh->fpb_payment['remind_email']);
+            }
+        }
+    }
+
+    wp_send_json_success($data);
+}
+
+/**
+ * "Run reminder check now" on the settings screen: the same sweep WP-Cron
+ * runs every hour, on demand.
+ */
+add_action('wp_ajax_snapbook_admin_run_reminders', 'snapbook_admin_run_reminders');
+function snapbook_admin_run_reminders()
+{
+    check_ajax_referer('snapbook_admin_nonce', 'nonce');
+    if (! snapbook_can_manage()) {
+        wp_send_json_error(['message' => __('Permission denied.', 'snapbook')]);
+    }
+    if (! function_exists('snapbook_run_balance_reminders')) {
+        wp_send_json_error(['message' => __('WooCommerce is not active.', 'snapbook')]);
+    }
+
+    $result = snapbook_run_balance_reminders('manual');
+    if (($result['skipped'] ?? '') === 'disabled') {
+        wp_send_json_error(['message' => __('Both automatic reminders are switched off. Turn one on and save the settings first.', 'snapbook')]);
+    }
+    if (($result['skipped'] ?? '') === 'locked') {
+        wp_send_json_error(['message' => __('A reminder check is already running. Try again in a minute.', 'snapbook')]);
+    }
+
+    /* translators: 1: bookings checked, 2: reminders sent */
+    $message = sprintf(_n('Checked %1$d booking with an unpaid balance, %2$d reminder sent.', 'Checked %1$d bookings with an unpaid balance, %2$d reminders sent.', (int) $result['checked'], 'snapbook'), (int) $result['checked'], (int) $result['sent']);
+    if ((int) $result['failed'] > 0) {
+        /* translators: %d: reminders that failed to send */
+        $message .= ' ' . sprintf(_n('%d email could not be sent. Check your site\'s email delivery.', '%d emails could not be sent. Check your site\'s email delivery.', (int) $result['failed'], 'snapbook'), (int) $result['failed']);
+    }
+
+    wp_send_json_success(['message' => $message, 'result' => $result]);
 }
 
 add_action('wp_ajax_snapbook_admin_save_session',   'snapbook_admin_save_session');
@@ -460,7 +565,7 @@ add_action('wp_ajax_snapbook_admin_delete_session', 'snapbook_admin_delete_sessi
 function snapbook_admin_save_session()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) wp_send_json_error();
+    if (! snapbook_can_manage()) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
     $id   = absint(wp_unslash($_POST['id'] ?? 0));
@@ -499,10 +604,32 @@ function snapbook_admin_save_session()
 function snapbook_admin_delete_session()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) wp_send_json_error();
+    if (! snapbook_can_manage()) wp_send_json_error();
     global $wpdb;
     $pfx = $wpdb->prefix . 'fpb_';
     $id  = absint(wp_unslash($_POST['id'] ?? 0));
+
+    // Refuse while packages still point at this session type -- deleting it
+    // would orphan them (gone from the admin list, still in the catalog).
+    $pkg_names = $wpdb->get_col($wpdb->prepare("SELECT name FROM {$pfx}packages WHERE session_id=%d ORDER BY sort_order, id", $id)); // phpcs:ignore
+    if (! empty($pkg_names)) {
+        $shown = array_slice($pkg_names, 0, 5);
+        $list  = implode(', ', $shown) . (count($pkg_names) > count($shown) ? ', …' : '');
+        wp_send_json_error([
+            'message' => sprintf(
+                /* translators: 1: number of packages, 2: comma-separated package names */
+                _n(
+                    'This session type still has %1$d package (%2$s). Move it to another session type or delete it first, then try again.',
+                    'This session type still has %1$d packages (%2$s). Move them to another session type or delete them first, then try again.',
+                    count($pkg_names),
+                    'snapbook'
+                ),
+                count($pkg_names),
+                $list
+            ),
+        ]);
+    }
+
     $wpdb->delete("{$pfx}sessions", ['id' => $id]); // phpcs:ignore
     wp_send_json_success();
 }
@@ -516,7 +643,7 @@ add_action('wp_ajax_snapbook_admin_delete_package', 'snapbook_admin_delete_packa
 function snapbook_admin_save_package()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) wp_send_json_error();
+    if (! snapbook_can_manage()) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
     $id   = absint(wp_unslash($_POST['id'] ?? 0));
@@ -530,6 +657,8 @@ function snapbook_admin_save_package()
         'featured'    => absint(wp_unslash($_POST['featured'] ?? 0)) === 1 ? 1 : 0,
         'sort_order'  => absint(wp_unslash($_POST['sort_order']  ?? 0)),
         'active'      => absint(wp_unslash($_POST['active'] ?? 0)) === 1 ? 1 : 0,
+        // The package's own deposit %: 1–99, or 0 (blank) = the global setting.
+        'deposit_pct' => min(99, absint(wp_unslash($_POST['deposit_pct'] ?? 0))),
     ];
     if (empty($data['name']) || $data['session_id'] < 1) {
         wp_send_json_error(['message' => 'Session type and name are required.']);
@@ -554,7 +683,7 @@ function snapbook_admin_save_package()
 function snapbook_admin_delete_package()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) wp_send_json_error();
+    if (! snapbook_can_manage()) wp_send_json_error();
     global $wpdb;
     $wpdb->delete($wpdb->prefix . 'fpb_packages', ['id' => absint(wp_unslash($_POST['id'] ?? 0))]); // phpcs:ignore
     wp_send_json_success();
@@ -569,7 +698,7 @@ add_action('wp_ajax_snapbook_admin_delete_addon', 'snapbook_admin_delete_addon')
 function snapbook_admin_save_addon()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) wp_send_json_error();
+    if (! snapbook_can_manage()) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
     $id   = absint(wp_unslash($_POST['id'] ?? 0));
@@ -607,7 +736,7 @@ function snapbook_admin_save_addon()
 function snapbook_admin_delete_addon()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) wp_send_json_error();
+    if (! snapbook_can_manage()) wp_send_json_error();
     global $wpdb;
     $wpdb->delete($wpdb->prefix . 'fpb_addons', ['id' => absint(wp_unslash($_POST['id'] ?? 0))]); // phpcs:ignore
     wp_send_json_success();
@@ -622,7 +751,7 @@ add_action('wp_ajax_snapbook_admin_toggle_date',  'snapbook_admin_toggle_date');
 function snapbook_admin_get_dates()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) wp_send_json_error();
+    if (! snapbook_can_manage()) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
     $rows = $wpdb->get_results("SELECT date_str, status, notes FROM {$pfx}dates ORDER BY date_str"); // phpcs:ignore
@@ -634,7 +763,7 @@ function snapbook_admin_get_dates()
 function snapbook_admin_toggle_date()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) wp_send_json_error();
+    if (! snapbook_can_manage()) wp_send_json_error();
     global $wpdb;
     $pfx  = $wpdb->prefix . 'fpb_';
     $date = sanitize_text_field(wp_unslash($_POST['date'] ?? ''));
@@ -642,6 +771,37 @@ function snapbook_admin_toggle_date()
     if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) wp_send_json_error(['message' => 'Invalid date.']);
 
     $existing = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$pfx}dates WHERE date_str=%s", $date)); // phpcs:ignore
+
+    // A date a customer actually booked is not the calendar's to change:
+    // cycling it would reopen it for a double booking. Name who holds it.
+    $holders = $wpdb->get_results($wpdb->prepare("SELECT id, order_id, client_name, client_email FROM {$pfx}bookings WHERE session_date=%s AND status NOT IN ('cancelled') ORDER BY id", $date)); // phpcs:ignore
+    if (! empty($holders)) {
+        $who = [];
+        foreach ($holders as $h) {
+            $name = trim((string) $h->client_name);
+            if ($name === '') {
+                $name = trim((string) $h->client_email) !== '' ? trim((string) $h->client_email) : __('a customer', 'snapbook');
+            }
+            /* translators: %d: WooCommerce order ID or SnapBook booking ID */
+            $ref   = (int) $h->order_id > 0 ? sprintf(__('order #%d', 'snapbook'), (int) $h->order_id) : sprintf(__('booking #%d', 'snapbook'), (int) $h->id);
+            $who[] = $name . ' (' . $ref . ')';
+        }
+        wp_send_json_error([
+            'message' => sprintf(
+                /* translators: %s: client name(s) with their order/booking reference */
+                _n(
+                    'Booked by %s. Cancel the booking first to free this date.',
+                    'Booked by %s. Cancel those bookings first to free this date.',
+                    count($who),
+                    'snapbook'
+                ),
+                implode(', ', $who)
+            ),
+            'date'    => $date,
+            'status'  => $existing ? (string) $existing->status : 'available',
+        ]);
+    }
+
     if (! $existing) {
         // No entry → mark as booked
         $wpdb->insert("{$pfx}dates", ['date_str' => $date, 'status' => 'booked']); // phpcs:ignore
@@ -664,92 +824,41 @@ add_action('wp_ajax_snapbook_admin_update_booking_status', 'snapbook_admin_updat
 function snapbook_admin_update_booking_status()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) wp_send_json_error();
-    global $wpdb;
+    if (! snapbook_can_manage()) {
+        wp_send_json_error(['message' => __('Permission denied.', 'snapbook')]);
+    }
+
     $id     = absint(wp_unslash($_POST['id'] ?? 0));
-    $status = sanitize_text_field(wp_unslash($_POST['status'] ?? ''));
+    $status = sanitize_key(wp_unslash($_POST['status'] ?? ''));
     if ($status === 'pending') {
         $status = 'pending_payment';
     }
-    if (! in_array($status, ['pending_payment', 'confirmed', 'cancelled', 'completed'], true)) wp_send_json_error();
-
-    $response = [
-        'booking_id' => $id,
-        'booking_status' => $status,
-        'main_order_id' => 0,
-        'main_order_status' => '',
-        'due_order_id' => 0,
-        'due_order_status' => '',
-        'updated_order_id' => 0,
-        'updated_order_status' => '',
-    ];
-
-    // Update booking status
-    $wpdb->update($wpdb->prefix . 'fpb_bookings', ['status' => $status], ['id' => $id]); // phpcs:ignore
-
-    // Get associated order and update WooCommerce order status.
-    // For 50% bookings, update the balance order (second order), not the main paid order.
-    $booking = $wpdb->get_row($wpdb->prepare("SELECT order_id FROM {$wpdb->prefix}fpb_bookings WHERE id = %d", $id)); // phpcs:ignore
-    if ($booking && $booking->order_id && function_exists('wc_get_order')) {
-        $main_order = wc_get_order((int) $booking->order_id);
-        if ($main_order) {
-            $response['main_order_id'] = (int) $main_order->get_id();
-            $response['main_order_status'] = (string) $main_order->get_status();
-
-            $target_order = $main_order;
-            $due_order_id = (int) $main_order->get_meta('_fpb_due_order_id', true);
-            if ($due_order_id > 0) {
-                $due_order = wc_get_order($due_order_id);
-                if ($due_order) {
-                    $target_order = $due_order;
-                    $response['due_order_id'] = (int) $due_order->get_id();
-                    $response['due_order_status'] = (string) $due_order->get_status();
-                }
-            }
-
-            $wc_status = 'pending';
-            if ($status === 'confirmed') {
-                $wc_status = 'processing';
-            } elseif ($status === 'pending_payment') {
-                $wc_status = 'pending';
-            } elseif ($status === 'cancelled') {
-                $wc_status = 'cancelled';
-            } elseif ($status === 'completed') {
-                $wc_status = 'completed';
-            }
-
-            $target_order->set_status($wc_status);
-            $target_order->save();
-
-            $response['updated_order_id'] = (int) $target_order->get_id();
-            $response['updated_order_status'] = (string) $target_order->get_status();
-
-            // Refresh statuses after save so UI can sync instantly without page reload.
-            $ref_main_order = wc_get_order((int) $booking->order_id);
-            if ($ref_main_order) {
-                $response['main_order_id'] = (int) $ref_main_order->get_id();
-                $response['main_order_status'] = (string) $ref_main_order->get_status();
-
-                $ref_due_order_id = (int) $ref_main_order->get_meta('_fpb_due_order_id', true);
-                if ($ref_due_order_id > 0) {
-                    $ref_due_order = wc_get_order($ref_due_order_id);
-                    if ($ref_due_order) {
-                        $response['due_order_id'] = (int) $ref_due_order->get_id();
-                        $response['due_order_status'] = (string) $ref_due_order->get_status();
-                    }
-                }
-            }
-        }
+    if ($id < 1 || ! array_key_exists($status, snapbook_booking_statuses())) {
+        wp_send_json_error(['message' => __('Unknown booking status.', 'snapbook')]);
     }
 
-    wp_send_json_success($response);
+    // The rules (what may change, and what it does to the WooCommerce orders)
+    // live in snapbook_admin_change_booking_status() -- admin-bookings.php. A
+    // status change never invents a payment: money is logged with "Record
+    // payment" (or arrives through WooCommerce).
+    $result = snapbook_admin_change_booking_status($id, $status);
+    if (is_wp_error($result)) {
+        $data = (array) $result->get_error_data();
+        wp_send_json_error([
+            'message' => $result->get_error_message(),
+            'code'    => $result->get_error_code(),
+            'record'  => ! empty($data['record']),
+        ]);
+    }
+
+    wp_send_json_success($result);
 }
 
 add_action('wp_ajax_snapbook_admin_update_wc_order_status', 'snapbook_admin_update_wc_order_status');
 function snapbook_admin_update_wc_order_status()
 {
     check_ajax_referer('snapbook_admin_nonce', 'nonce');
-    if (! current_user_can('manage_options')) {
+    if (! snapbook_can_manage()) {
         wp_send_json_error(['message' => 'Permission denied.']);
     }
 

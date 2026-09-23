@@ -2,9 +2,9 @@
 Contributors: snapbook
 Tags: booking, photography, woocommerce, appointment, calendar
 Requires at least: 6.0
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.6.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -55,7 +55,7 @@ Use the shortcode `[snapbook]` on any page or post. It also accepts optional att
 
 = How do I add my Terms and Conditions to the booking form? =
 
-Go to **SnapBook &rarr; Frontend** and turn on **Contract step**. You can set the step name, heading, the agreement text (using the visual editor), and the wording of the acceptance checkbox. The client cannot reach the payment step until the box is ticked. The step is off by default.
+Go to **SnapBook &rarr; Booking Form** and turn on **Contract step**. You can set the step name, heading, the agreement text (using the visual editor), and the wording of the acceptance checkbox. The client cannot reach the payment step until the box is ticked. The step is off by default.
 
 = Can I block specific dates? =
 
@@ -67,7 +67,7 @@ The client pays half at checkout. SnapBook creates a second WooCommerce order fo
 
 = Can I change the wording on the booking form? =
 
-Yes. **SnapBook &rarr; Frontend** controls the sidebar cards and the contract step, and **SnapBook &rarr; Settings** controls the confirmation screens, the order email, and the balance reminder.
+Yes. **SnapBook &rarr; Booking Form** controls the steps, the contract step and the sidebar cards. **SnapBook &rarr; Settings &rarr; Checkout** holds the messages shown after booking, and **Settings &rarr; Emails** the order email and balance reminders.
 
 = Which page does the booking form live on? =
 
@@ -81,9 +81,98 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 4. Admin bookings list with status management and balance tracking.
 5. Packages management with pricing, add-ons, and share links.
 6. The Date Slots availability calendar.
-7. The Frontend screen, where the sidebar cards and the contract step are edited.
+7. The Booking Form screen, where the steps, the contract step and the sidebar cards are edited.
 
 == Changelog ==
+
+= 1.6.1 =
+* **Send a payment reminder right away:** the booking View window now has a **Send reminder now** button in its Balance reminders box, for when the remaining balance can't wait for the automatic reminder. It asks first, shows who it goes to, and warns when a reminder already went out in the last 12 hours.
+* After sending, the window updates in place: the number of reminders sent, when the last one went out and when the next automatic one is due.
+* When a reminder can't be sent, the window says why (balance already paid, booking cancelled, the balance order is on hold, or no customer email) instead of hiding the button.
+* The list's Actions menu uses the same confirmation, and only offers the reminder when it can actually be sent.
+
+= 1.6.0 =
+* **Easier admin:** every setting now has a **?** help tip that explains what it does in plain words, with examples. Hover, tab to it or tap it.
+* **Settings is organised into sections** — General, Payments, Availability, Checkout, Customers, Emails, Google Calendar and Advanced — with a side menu and a search box that finds any setting (it searches the help text too).
+* **Setup checklist** in Settings &rarr; General shows what is left before you can take bookings, with a button for each step. All Bookings reminds you while steps are left.
+* Settings that only matter when another option is on are dimmed and say why (for example the deposit amount while the deposit option is off).
+* A save bar stays in view, shows when you have unsaved changes, and the browser asks before you leave with unsaved changes.
+* The **Frontend** screen is now called **Booking Form** and starts with a diagram of the steps customers go through.
+* The top menu is grouped: Bookings · Session Types, Packages, Add-ons · Date Slots · Booking Form, Settings.
+* Date Slots explains what each state means. All Bookings explains each booking status.
+* Fixed: on phones, on/off switches in settings tables collapsed and overlapped their label.
+
+= 1.5.0 =
+* **Availability:**
+    * Bookings per day.
+    * Optional start times: customers pick a time and each time is booked once.
+    * Minimum notice and the furthest bookable day.
+    * Closed weekdays.
+    * A short hold on a date while the customer pays, so two customers can't pay for the same slot.
+* **Deposit and fees:**
+    * The deposit percentage is a setting, and each package can have its own.
+    * The payment fee has its own label.
+    * The fee is not charged for bank transfer, cheque or cash (you choose which methods are exempt).
+* **Promo codes:** WooCommerce coupons can be used on the booking form (optional). Each code's discount and usage are recorded on the order.
+* **Offline payments:**
+    * Bank transfer, cheque and cash-on-delivery bookings are "Awaiting payment" and hold their date. The customer sees the payment instructions, not "confirmed".
+    * Unpaid ones can be cancelled automatically after a number of days.
+* **Balance deadline:** you can set it a number of days before the shoot. It is shown in the confirmation, the reminders and My Account (`{balance_due_date}` placeholder).
+* **Contract:**
+    * Acceptance is now recorded on the order: time, terms version, IP, and an optional typed signature.
+    * The accepted wording is kept per version, and it is enforced on the server.
+* **Free bookings** (0 total) are confirmed immediately.
+* **Customers:**
+    * A "Bookings" tab in My Account.
+    * A booking panel on the order pages, with pay the balance, add to calendar (.ics) and request a reschedule or cancellation.
+    * A "Manage your booking" link in the confirmation email.
+* **Google Calendar:**
+    * Events are updated when a booking changes and removed when it is cancelled.
+    * Failed syncs are retried automatically and shown on the SnapBook screens.
+* **Cancelled bookings** that are re-activated hold their date again (with a conflict check).
+* **Studio staff:** Shop Managers can manage bookings (new `manage_snapbook` capability).
+* **Uninstall:** an option to remove all SnapBook data when the plugin is deleted.
+* **All Bookings:**
+    * Search, status/package/date filters, sorting, pagination, a Session column, CSV export (safe for Excel) and a month calendar view.
+    * Status changes explain what will happen and ask before they email the customer.
+    * They never mark money as received; use **Record payment** for cash or bank payments.
+* **Add booking** by hand (phone or walk-in): paid in full, deposit paid, or unpaid with a payment link emailed to the customer.
+* **Edit / reschedule** a booking: dates, orders, calendar event and customer email all updated together.
+* **The booking view** shows the start time, promo code, balance deadline, accepted terms (with the exact wording), Google Calendar status and customer change requests.
+* **Settings:** new cards for Deposit & payment fee, Availability, Offline payments, Customer account and Plugin data. Packages can have their own deposit %.
+* **Booking form:**
+    * Start-time buttons under the calendar.
+    * Closed, full and out-of-range days are shown as unavailable.
+    * The fee is shown on the first step.
+    * Promo code field.
+    * Typed signature.
+    * A login prompt up front when accounts are required.
+    * Progress kept across reloads and login.
+    * Prices use your WooCommerce currency format with decimals.
+* **Booking form accessibility:** every text can be translated, and keyboard and screen-reader use is much better.
+* The room number accepts text (e.g. "B12").
+
+
+= 1.4.0 =
+* **Remaining payment reminders rebuilt.** They no longer depend on a single WP-Cron event queued at checkout, which never fired on hosts where WP-Cron doesn't run and skipped bookings made while reminders were off. An hourly check now looks at every booking with an unpaid balance, and runs during normal page visits if WP-Cron is not running.
+* Two independent reminder switches: **Reminder before the photoshoot** (N days before, at 09:00) and **Keep reminding until the balance is paid** (every N days, optional limit, optional stop once the shoot date has passed).
+* The reminder card shows whether reminders are running, when the last check ran, and which reminder goes out next, and has a "Run reminder check now" button. The booking's View panel shows reminders sent and the next one.
+* Reminders go out between 09:00 and 21:00 site time, never twice within 12 hours. Each one is logged as an order note. The subject accepts placeholders, and dates use your site's date format.
+* **Security:** booking prices are now calculated on the server from the package and add-ons. Totals sent by the browser are ignored.
+* The server now checks the session date before creating an order: past, booked and blocked dates are refused. A booking paid for a date that is already taken is flagged to the studio by email and an order note.
+* Fixed: every deposit payment created two balance orders.
+* Fixed: marking a booking "Processing" in Bookings marked the unpaid balance as paid and completed the booking. "Waiting payment" no longer reopens a paid order.
+* Cancelled or refunded bookings now free their date and cancel the unpaid balance order.
+* Unpaid booking orders now expire after WooCommerce's "Hold stock" time. Balance orders never expire.
+* The booking confirmation email now includes bank-transfer, cheque and cash-on-delivery payment instructions. After the balance is paid, the confirmation and order totals say "Balance paid".
+* Changing the date on the payment step now updates the order. The calendar no longer shows every date as free on a cached page.
+* Admin fixes:
+    * All Bookings no longer crashes without WooCommerce.
+    * Editing add-ons or packages keeps inactive links.
+    * A session type with packages can't be deleted.
+    * Date Slots won't reopen a date a customer booked.
+    * Prices show decimals.
+    * An expired admin session shows a clear message.
 
 = 1.3.0 =
 * New **Google Calendar** integration (SnapBook &rarr; Settings): every paid booking is added to your calendar automatically.
@@ -124,6 +213,18 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 * Security hardening throughout: nonce verification, output escaping, and input sanitisation.
 
 == Upgrade Notice ==
+
+= 1.6.1 =
+Adds a "Send reminder now" button to the booking View window, so you can email a customer about their remaining balance straight away.
+
+= 1.6.0 =
+A clearer admin: help tips on every setting, Settings split into sections with search, and a setup checklist. No settings change — everything you saved stays as it is.
+
+= 1.5.0 =
+Adds availability rules, start times, configurable deposits, promo codes, offline-payment handling, customer booking management and much more. The contract step (if enabled) is now enforced on the server. Clear any page cache after updating so visitors get the new booking form.
+
+= 1.4.0 =
+Fixes remaining-payment reminders that were not being sent, and closes a checkout hole that let the browser set the booking price. Recommended for all sites.
 
 = 1.3.0 =
 Adds Google Calendar sync for paid bookings. Optional — connect your Google account under SnapBook → Settings → Google Calendar to switch it on.

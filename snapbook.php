@@ -4,7 +4,7 @@
  * Plugin Name:  SnapBook
  * Plugin URI:   https://bestwebexpert.com
  * Description:  Multi-step photography booking with backend management and WooCommerce checkout. Shortcode: [snapbook]
- * Version:      1.3.0
+ * Version:      1.6.1
  * Author:       Razibul Hasan
  * Author URI:   https://bestwebexpert.com
  * Text Domain:  snapbook
@@ -18,12 +18,14 @@
 
 defined('ABSPATH') || exit;
 
-define('SNAPBOOK_VER', '1.3.0');
+define('SNAPBOOK_VER', '1.6.1');
 define('SNAPBOOK_URL', plugin_dir_url(__FILE__));
 define('SNAPBOOK_DIR', plugin_dir_path(__FILE__));
 
 // install.php required early so activation callback exists at hook-time
 require_once SNAPBOOK_DIR . 'includes/install.php';
+// Settings registry + capabilities: needed by activation and DB upgrades.
+require_once SNAPBOOK_DIR . 'includes/settings.php';
 
 register_activation_hook(__FILE__, 'snapbook_activate');
 register_deactivation_hook(__FILE__, 'snapbook_deactivate');
@@ -225,6 +227,9 @@ function snapbook_load()
     // One-time migration: fill blank emoji on existing rows
     snapbook_migrate_emoji();
 
+    // Shared building blocks, loaded before anything that uses them.
+    require_once SNAPBOOK_DIR . 'includes/pricing.php';
+    require_once SNAPBOOK_DIR . 'includes/availability.php';
     require_once SNAPBOOK_DIR . 'includes/admin.php';
     require_once SNAPBOOK_DIR . 'includes/ajax.php';
     require_once SNAPBOOK_DIR . 'includes/shortcode.php';
@@ -235,5 +240,7 @@ function snapbook_load()
     require_once SNAPBOOK_DIR . 'includes/google-calendar.php';
     if (class_exists('WooCommerce')) {
         require_once SNAPBOOK_DIR . 'includes/woocommerce.php';
+        // Customer side: My Account bookings, order-page panel, calendar file.
+        require_once SNAPBOOK_DIR . 'includes/account.php';
     }
 }
