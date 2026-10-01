@@ -242,5 +242,7 @@ function snapbook_load()
         require_once SNAPBOOK_DIR . 'includes/woocommerce.php';
         // Customer side: My Account bookings, order-page panel, calendar file.
         require_once SNAPBOOK_DIR . 'includes/account.php';
+        // Booking details on PDF invoices (PDF Invoices & Packing Slips).
+        require_once SNAPBOOK_DIR . 'includes/pdf-invoices.php';
     }
 }
