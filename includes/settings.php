@@ -42,6 +42,8 @@ function snapbook_setting_defs()
         'fpb_min_notice_days'              => ['type' => 'int', 'default' => 0, 'min' => 0, 'max' => 365],
         'fpb_max_advance_days'             => ['type' => 'int', 'default' => 0, 'min' => 0, 'max' => 1095],
         'fpb_closed_weekdays'              => ['type' => 'intlist', 'default' => [], 'min' => 0, 'max' => 6],
+        // One calendar with the Wedding Booking plugin (off = separate calendars).
+        'fpb_share_calendar'               => ['type' => 'bool', 'default' => 0],
 
         // Contract (SnapBook → Booking Form → Contract step).
         'fpb_fe_contract_signature'        => ['type' => 'bool', 'default' => 0],

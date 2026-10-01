@@ -928,6 +928,25 @@ function snapbook_render_settings_availability()
 
     echo '</tbody></table>';
     snapbook_settings_card_close();
+
+    // ── Shared calendar (Wedding Booking plugin) ─
+    $share_on = (int) snapbook_opt('fpb_share_calendar') === 1;
+    snapbook_settings_card_open(__('Shared calendar', 'snapbook'), __('Use one calendar with the Wedding Booking plugin on this site.', 'snapbook'), 'fpb-share-calendar-card');
+    echo '<table class="form-table" role="presentation"><tbody>';
+
+    snapbook_setting_row_open(
+        __('Share dates with Wedding Booking', 'snapbook'),
+        __('On: a date booked, held or closed in SnapBook is also unavailable in Wedding Booking, and the other way round. Off: each plugin has its own calendar, so the same date can be booked once in each.', 'snapbook')
+    );
+    echo '<input type="hidden" name="fpb_share_calendar" value="0">';
+    echo snapbook_toggle_field('fpb_share_calendar', __('Block dates booked in either plugin', 'snapbook'), $share_on, __('Off = SnapBook and Wedding Booking take bookings separately.', 'snapbook')); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped inside snapbook_toggle_field.
+    if (! function_exists('wedding_booking_occupancy')) {
+        echo '<p class="fpb-set-warn"><span class="dashicons dashicons-warning" aria-hidden="true"></span> <span>' . esc_html__('The Wedding Booking plugin isn\'t active, so this has no effect right now.', 'snapbook') . '</span></p>';
+    }
+    snapbook_setting_row_close();
+
+    echo '</tbody></table>';
+    snapbook_settings_card_close();
 }
 
 /* ═══════════════════════════════════════════════════════════════
