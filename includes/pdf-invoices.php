@@ -172,7 +172,7 @@ add_action('wpo_wcpdf_after_order_data', 'snapbook_pdf_order_data_rows', 10, 2);
 function snapbook_pdf_order_data_rows($document_type, $order)
 {
     $booking = null;
-    if (! snapbook_pdf_applies($document_type, $order, $booking)) {
+    if (! snapbook_pdf_applies($document_type, $order, $booking) || ! $booking) {
         return;
     }
 

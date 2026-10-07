@@ -14,6 +14,12 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
+/** @var WC_Order $order Supplied by WooCommerce's wc_get_template(). */
+/** @var string $email_heading */
+/** @var bool $sent_to_admin */
+/** @var WC_Email $email */
+/** @var string $additional_content */
+
 $snapbook_settings = snapbook_get_order_email_settings();
 
 echo "= " . wp_strip_all_tags($email_heading) . " =\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped

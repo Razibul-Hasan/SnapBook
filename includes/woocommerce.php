@@ -1150,7 +1150,7 @@ function snapbook_strip_fee_for_gateway($order, $gateway_id, $force = false)
     if ((int) $order->get_meta('_fpb_is_balance_order', true) === 1) {
         $share = round((float) $order->get_meta('_fpb_fee_amount', true), 2);
         $item  = current($order->get_items());
-        if ($share <= 0 || ! $item) {
+        if ($share <= 0 || ! is_a($item, 'WC_Order_Item_Product')) {
             return false;
         }
         $item->set_subtotal(max(0, (float) $item->get_subtotal() - $share));
@@ -2195,6 +2195,9 @@ function snapbook_get_booking_figures($order)
 
     $product_id = (int) get_option('fpb_wc_product_id', 0);
     foreach ($order->get_items() as $item) {
+        if (! is_a($item, 'WC_Order_Item_Product')) {
+            continue;
+        }
         if ($product_id && (int) $item->get_product_id() !== $product_id) {
             continue;
         }
@@ -2384,6 +2387,9 @@ function snapbook_get_order_booking_meta($order)
 
     $product_id = (int) get_option('fpb_wc_product_id', 0);
     foreach ($order->get_items() as $item) {
+        if (! is_a($item, 'WC_Order_Item_Product')) {
+            continue;
+        }
         if ($product_id && (int) $item->get_product_id() !== $product_id) {
             continue;
         }
