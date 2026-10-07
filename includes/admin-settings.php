@@ -1166,7 +1166,7 @@ function snapbook_render_settings_customers()
 
     snapbook_setting_row_open(
         __('Change requests', 'snapbook'),
-        __('Customers can ask to reschedule or cancel from their booking. You get an email and the request shows on the booking. Nothing changes until you change it yourself.', 'snapbook')
+        __('Customer booking emails include a link to request a new date or cancellation. Their booking stays unchanged until you approve it in All Bookings. You can also decline and keep the original date.', 'snapbook')
     );
     echo '<input type="hidden" name="fpb_customer_requests_enable" value="0">';
     echo snapbook_toggle_field('fpb_customer_requests_enable', __('Let customers ask to reschedule or cancel', 'snapbook'), $req_on, __('You get an email and the request shows on the booking.', 'snapbook')); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped inside snapbook_toggle_field.
@@ -1357,6 +1357,11 @@ function snapbook_render_balance_reminder_card()
 
     echo '<div class="fpb-rem-rules">';
 
+    echo '<div class="fpb-rem-rule">';
+    echo '<label class="fpb-rem-inline">' . esc_html__('Start automatic reminders', 'snapbook') . ' <input class="small-text" type="number" min="0" max="60" step="1" name="fpb_balance_reminder_days_before" value="' . esc_attr($cfg['days_before']) . '"> ' . esc_html__('day(s) before the photoshoot, at 09:00', 'snapbook') . '</label>';
+    echo '<p class="description">' . esc_html__('Applies to both schedules below. No automatic reminder is sent before this date, even if the deposit was paid months earlier. 0 starts on the morning of the shoot.', 'snapbook') . '</p>';
+    echo '</div>';
+
     // ── Before the photoshoot ──
     echo '<div class="fpb-rem-rule' . ($cfg['before_enable'] ? '' : ' is-off') . '">';
     echo '<input type="hidden" name="fpb_enable_balance_reminders" value="0">';
@@ -1369,8 +1374,7 @@ function snapbook_render_balance_reminder_card()
     echo snapbook_help_tip(__('Sends one email, with a link to pay, to customers who still owe a balance a set number of days before their session. It goes out at 09:00 your time.', 'snapbook')); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped inside snapbook_help_tip.
     echo '</div>';
     echo '<div class="fpb-rem-fields">';
-    echo '<label class="fpb-rem-inline">' . esc_html__('Send it', 'snapbook') . ' <input class="small-text" type="number" min="0" max="60" step="1" name="fpb_balance_reminder_days_before" value="' . esc_attr($cfg['days_before']) . '"> ' . esc_html__('day(s) before the photoshoot, at 09:00', 'snapbook') . '</label>';
-    echo '<p class="description">' . esc_html__('0 sends it on the morning of the shoot. A customer who books later than that still gets it, at least 12 hours after paying the deposit, as long as the shoot is still ahead.', 'snapbook') . '</p>';
+    echo '<p class="description">' . esc_html__('Sends once when the reminder period starts. A customer who books later still gets it, at least 12 hours after paying the deposit, as long as the shoot date has not passed.', 'snapbook') . '</p>';
     echo '</div>';
     echo '</div>';
 
@@ -1390,7 +1394,7 @@ function snapbook_render_balance_reminder_card()
     echo '<label class="fpb-rem-inline">' . esc_html__('Stop after', 'snapbook') . ' <input class="small-text" type="number" min="0" max="100" step="1" name="fpb_balance_reminder_repeat_max" value="' . esc_attr($cfg['repeat_max']) . '"> ' . esc_html__('reminders', 'snapbook') . ' <span class="fpb-rem-hint">' . esc_html__('(0 = no limit, keep going until paid)', 'snapbook') . '</span></label>';
     echo '<input type="hidden" name="fpb_balance_reminder_repeat_stop_after_shoot" value="0">';
     echo '<label class="fpb-rem-inline"><input type="checkbox" name="fpb_balance_reminder_repeat_stop_after_shoot" value="1"' . checked($cfg['repeat_stop_after_shoot'], true, false) . '> ' . esc_html__('Stop once the photoshoot date has passed', 'snapbook') . '</label>';
-    echo '<p class="description">' . esc_html__('The first one goes out that many days after the deposit, or after the last reminder. When you switch this on, customers who already owe a balance get their first one that many days from now, not all at once.', 'snapbook') . '</p>';
+    echo '<p class="description">' . esc_html__('Repeats only after the reminder period above starts, with this interval after the deposit or last reminder. When switched on, it also waits this interval before sending to existing bookings. It never starts chasing a next-year booking immediately.', 'snapbook') . '</p>';
     echo '</div>';
     echo '</div>';
 

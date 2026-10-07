@@ -65,7 +65,8 @@ if (! empty($snapbook_settings['order_table'])) {
 echo "\n";
 do_action('woocommerce_email_after_order_table', $order, $sent_to_admin, true, $email); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WooCommerce's own email hook.
 
-if (function_exists('snapbook_booking_manage_url') && ! $sent_to_admin) {
+if (function_exists('snapbook_booking_manage_url') && ! $sent_to_admin
+    && (! function_exists('snapbook_booking_request_url') || snapbook_booking_request_url($order) === '')) {
     echo "
 " . esc_html__('Manage your booking', 'snapbook') . ': ' . esc_url_raw(snapbook_booking_manage_url($order)) . "
 "; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped

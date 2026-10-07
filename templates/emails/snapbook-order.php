@@ -82,7 +82,8 @@ if ($snapbook_after_table !== '') {
 }
 
 // Where the customer can see the booking, add it to a calendar or ask for a change.
-if (function_exists('snapbook_booking_manage_url') && ! $sent_to_admin) {
+if (function_exists('snapbook_booking_manage_url') && ! $sent_to_admin
+    && (! function_exists('snapbook_booking_request_url') || snapbook_booking_request_url($order) === '')) {
     $snapbook_content .= snapbook_email_divider(24);
     $snapbook_content .= snapbook_email_text(
         '<a href="' . esc_url(snapbook_booking_manage_url($order)) . '" style="color:' . esc_attr(snapbook_email_palette()['accent_dk']) . ';font-weight:600;">' . esc_html__('Manage your booking', 'snapbook') . '</a> &mdash; '

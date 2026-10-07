@@ -417,6 +417,7 @@ function snapbook_gcal_insert_event(array $event, $token)
  * admin screen.
  */
 add_action('snapbook_booking_created', 'snapbook_gcal_queue_sync', 10, 1);
+add_action('snapbook_booking_paid', 'snapbook_gcal_queue_sync', 10, 1);
 add_action('snapbook_booking_cancelled', 'snapbook_gcal_queue_sync', 10, 1);
 add_action('snapbook_booking_updated', 'snapbook_gcal_queue_sync', 10, 1);
 function snapbook_gcal_queue_sync($booking_id)
