@@ -9,7 +9,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-6.0%2B-21759b?style=for-the-badge&logo=wordpress&logoColor=white)](https://wordpress.org)
 [![WooCommerce](https://img.shields.io/badge/WooCommerce-7.0%2B-96588a?style=for-the-badge&logo=woocommerce&logoColor=white)](https://woocommerce.com)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-777bb4?style=for-the-badge&logo=php&logoColor=white)](https://php.net)
-[![Version](https://img.shields.io/badge/Version-1.1.0-b8956a?style=for-the-badge)](#-changelog)
+[![Version](https://img.shields.io/badge/Version-1.7.0-b8956a?style=for-the-badge)](#-changelog)
 [![License](https://img.shields.io/badge/License-GPL--2.0%2B-2f7d4f?style=for-the-badge)](https://www.gnu.org/licenses/gpl-2.0.html)
 
 <sub>No build step · No external requests · No page reloads between steps</sub>

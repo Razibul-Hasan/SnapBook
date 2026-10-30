@@ -1,0 +1,40 @@
+{
+  // Intelephense only indexes this folder, so WordPress and WooCommerce
+  // functions showed as "undefined". Add the WordPress stubs (setting this
+  // list replaces the defaults, so they are repeated) and index WooCommerce.
+  "intelephense.stubs": [
+    "apache",
+    "bcmath",
+    "Core",
+    "ctype",
+    "curl",
+    "date",
+    "dom",
+    "fileinfo",
+    "filter",
+    "gd",
+    "hash",
+    "iconv",
+    "json",
+    "libxml",
+    "mbstring",
+    "mysqli",
+    "openssl",
+    "pcre",
+    "PDO",
+    "Reflection",
+    "session",
+    "SimpleXML",
+    "sodium",
+    "SPL",
+    "standard",
+    "tokenizer",
+    "xml",
+    "zip",
+    "zlib",
+    "wordpress"
+  ],
+  "intelephense.environment.includePaths": [
+    "C:/Users/razib/Local Sites/plugin-dev/app/public/wp-content/plugins/woocommerce"
+  ]
+}

@@ -2830,13 +2830,25 @@ function snapbook_remember_guest_order($order)
     WC()->session->save_data();
 }
 
-add_filter('woocommerce_order_email_verification_required', 'snapbook_skip_guest_email_verification', 10, 2);
-function snapbook_skip_guest_email_verification($required, $order)
+add_filter('woocommerce_order_email_verification_required', 'snapbook_skip_guest_email_verification', 10, 3);
+function snapbook_skip_guest_email_verification($required, $order, $context = '')
 {
-    if (! $required || ! $order || snapbook_account_required_for_booking()) {
+    if (! $required || ! $order || (int) $order->get_customer_id() > 0) {
         return $required;
     }
-    if ((int) $order->get_customer_id() > 0 || ! function_exists('WC') || ! WC()->session) {
+
+    // Payment links SnapBook emails out (rest payment, reminders, admin-added
+    // bookings) open in a browser that never placed the order. They carry
+    // the order key, which WooCommerce has already matched by now, so the
+    // link itself identifies the customer.
+    if (in_array($context, ['order-pay', 'order-received'], true) && snapbook_is_booking_order($order)) {
+        $key = isset($_GET['key']) ? sanitize_text_field(wp_unslash($_GET['key'])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- compared to the order key, not used otherwise.
+        if ($key !== '' && hash_equals($order->get_order_key(), $key)) {
+            return false;
+        }
+    }
+
+    if (snapbook_account_required_for_booking() || ! function_exists('WC') || ! WC()->session) {
         return $required;
     }
 

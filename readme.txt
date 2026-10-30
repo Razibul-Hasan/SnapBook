@@ -4,7 +4,7 @@ Tags: booking, photography, woocommerce, appointment, calendar
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.6.4
+Stable tag: 1.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -84,6 +84,9 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 7. The Booking Form screen, where the steps, the contract step and the sidebar cards are edited.
 
 == Changelog ==
+
+= 1.7.0 =
+* Guests can pay for their booking straight away: the payment page no longer asks them to log in or verify their email when accounts aren't required for booking.
 
 = 1.6.4 =
 * When customer change requests are enabled, booking confirmation emails (custom or standard WooCommerce), balance reminders, and booking-update emails include a direct link to request a reschedule or cancellation. The booking stays unchanged until the studio approves the request.
@@ -228,6 +231,9 @@ Any page with the shortcode. SnapBook auto-detects it for the package share link
 * Security hardening throughout: nonce verification, output escaping, and input sanitisation.
 
 == Upgrade Notice ==
+
+= 1.7.0 =
+Guests no longer have to log in or verify their email before paying for a booking.
 
 = 1.6.4 =
 Customer booking emails now include a direct change-request link when the reschedule/cancel setting is enabled.
