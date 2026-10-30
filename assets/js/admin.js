@@ -733,7 +733,7 @@
     });
   }
 
-  // Row menu "Send balance reminder": same confirm-then-send as the View window.
+  // Row menu "Send rest payment reminder": same confirm-then-send as the View window.
   function bindBalanceReminderButtons() {
     document.querySelectorAll(".fpb-send-balance-reminder").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -800,7 +800,7 @@
     );
   }
 
-  // "Balance reminders" box under the payment grid: what has gone out, what
+  // "Rest payment reminders" box under the payment grid: what has gone out, what
   // is scheduled, and a button to email the customer right now (for when it
   // can't wait for the automatic one). When a reminder can't be sent, it
   // says why instead.
@@ -839,7 +839,7 @@
     return (
       '<div class="fpb-modal-rem' +
       (balancePaid ? " is-paid" : "") +
-      '"><div class="fpb-modal-rem-info"><strong>Balance reminders</strong><span>' +
+      '"><div class="fpb-modal-rem-info"><strong>Rest payment reminders</strong><span>' +
       parts.join(" · ") +
       "</span></div>" +
       side +
@@ -902,7 +902,7 @@
       "This emails " +
         name +
         (email ? " (" + email + ")" : "") +
-        " a reminder to pay the remaining balance" +
+        " a reminder to pay the rest of their booking" +
         (amount ? " of " + amount : "") +
         ", with a link to pay online.",
     );
@@ -915,7 +915,7 @@
       );
     }
     html += para(
-      "It uses your reminder wording (Settings → Emails → Balance reminders). Automatic reminders count their next gap from this one.",
+      "It uses your reminder wording (Settings → Emails → Rest payment reminder). Automatic reminders count their next gap from this one.",
       "sb-dialog-text sb-dialog-note",
     );
     html += '<p class="sb-dialog-msg" aria-live="polite"></p>';
@@ -930,7 +930,7 @@
     });
   }
 
-  // Settings → Emails → Balance reminders: dim a schedule's fields while its
+  // Settings → Emails → Rest payment reminder: dim a schedule's fields while its
   // switch is off, and run the reminder sweep on demand.
   function bindReminderSettings() {
     document.querySelectorAll(".fpb-rem-rule").forEach((rule) => {

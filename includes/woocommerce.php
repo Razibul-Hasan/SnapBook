@@ -2803,6 +2803,47 @@ function snapbook_cancel_superseded_booking_order($order_id, $order_key)
     $order->update_status('cancelled', __('Superseded by a new booking attempt.', 'snapbook'));
 }
 
+/**
+ * Remember a guest's booking order in their WooCommerce session, so the
+ * order-pay / order-received pages recognise the browser that placed it.
+ * Without this, WooCommerce asks guests to log in or verify their email
+ * before paying, even when accounts aren't required for booking.
+ */
+function snapbook_remember_guest_order($order)
+{
+    if (is_user_logged_in() || ! $order || ! function_exists('WC')) {
+        return;
+    }
+
+    snapbook_ensure_wc_frontend_context();
+    if (! WC()->session) {
+        return;
+    }
+
+    if (! WC()->session->has_session()) {
+        WC()->session->set_customer_session_cookie(true);
+    }
+
+    $ids   = array_map('absint', (array) WC()->session->get('snapbook_guest_orders', []));
+    $ids[] = (int) $order->get_id();
+    WC()->session->set('snapbook_guest_orders', array_slice(array_unique($ids), -20));
+    WC()->session->save_data();
+}
+
+add_filter('woocommerce_order_email_verification_required', 'snapbook_skip_guest_email_verification', 10, 2);
+function snapbook_skip_guest_email_verification($required, $order)
+{
+    if (! $required || ! $order || snapbook_account_required_for_booking()) {
+        return $required;
+    }
+    if ((int) $order->get_customer_id() > 0 || ! function_exists('WC') || ! WC()->session) {
+        return $required;
+    }
+
+    $ids = array_map('absint', (array) WC()->session->get('snapbook_guest_orders', []));
+    return in_array((int) $order->get_id(), $ids, true) ? false : $required;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    WooCommerce PayPal Payments compatibility — the embedded pay page
    must always render the smart buttons / card fields, even when the
@@ -3017,6 +3058,7 @@ function snapbook_ajax_place_booking_order()
     if (! $order) {
         wp_send_json_error(['message' => __('Could not create your booking order. Please try again.', 'snapbook')]);
     }
+    snapbook_remember_guest_order($order);
 
     // Try to complete payment right here so the customer never leaves the
     // booking form. Gateways without payment fields (bank transfer, cash on
